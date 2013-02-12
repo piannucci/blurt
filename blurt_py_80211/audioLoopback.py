@@ -26,7 +26,7 @@ def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
 def audioLoopback(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
     output = processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
     input = audio.play_and_record(output, loopback_Fs)
-    return processInput(input, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
+    return processInput(input, loopback_Fs, loopback_Fc, upsample_factor)
 
 def audioOut(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
     output = processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
