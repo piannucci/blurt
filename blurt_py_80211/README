@@ -1,0 +1,6 @@
+Dependencies:
+numpy
+scipy
+wave
+Cython
+distutils
