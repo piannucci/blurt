@@ -1,0 +1,4 @@
+*.pyc
+audio/build
+audio/*.c
+*.so

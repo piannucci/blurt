@@ -15,7 +15,7 @@ mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
 lsnr = None
 
 def test():
-    rate, length = 1, 1000
+    rate, length = 1, 100
     input_octets = np.random.random_integers(0,255,length)
     output = wifi.encode(input_octets, rate)
     if lsnr is not None:
@@ -37,7 +37,4 @@ def testOut(message):
 
 def testIn():
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor)
-    try:
-        return ''.join(map(chr, wifi.decode(input, lsnr)))
-    except:
-        return None
+    return ''.join(map(chr, wifi.decode(input, lsnr)))
