@@ -12,10 +12,11 @@ upsample_factor = 16
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
-lsnr = None
+lsnr = 15.
+rate = 1
+length = 100
 
 def test():
-    rate, length = 1, 100
     input_octets = np.random.random_integers(0,255,length)
     output = wifi.encode(input_octets, rate)
     if lsnr is not None:

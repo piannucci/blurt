@@ -14,23 +14,9 @@ def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
         output[:mask_noise.size] += mask_noise[:output.size]
     return output
 
-def autocorrelate(input):
-    autocorr = input[16:] * input[:-16].conj()
-    autocorr = autocorr[:16*(autocorr.size//16)].reshape(autocorr.size//16, 16).sum(1)
-    return np.convolve(np.abs(autocorr), np.ones(9), 'same')
-
 def processInput(input, loopback_Fs, loopback_Fc, upsample_factor):
     input = input * np.exp(-1j * 2 * np.pi * np.arange(input.size) * loopback_Fc / loopback_Fs)
     input = iir.lowpass(.8/upsample_factor)(np.r_[np.zeros(6), input])[6::upsample_factor]
-    if 1:
-        # find STS by autocorrelation
-        score = autocorrelate(input)
-        input = input[16*np.argmax(score)-72:]
-    else:
-        # energy detector
-        input_max = 1.5 * np.std(np.abs(input)) + np.mean(np.abs(input))
-        input_mask = np.convolve((np.abs(input) > input_max*2e-1), np.ones(8), 'same') > 0
-        input = input[np.where(input_mask)]
     return input
 
 def audioLoopback(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):

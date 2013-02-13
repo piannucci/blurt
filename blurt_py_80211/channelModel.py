@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
+import util
 
 def add_noise(x, v):
     return x + np.random.standard_normal(x.shape)*(.5*v)**.5 + 1j * np.random.standard_normal(x.shape)*(.5*v)**.5

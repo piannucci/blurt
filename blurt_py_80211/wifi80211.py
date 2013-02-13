@@ -16,6 +16,11 @@ class Rate:
         self.Nbps = ofdm.Nsc * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
         self.Ncbps = ofdm.Nsc * self.Nbpsc
 
+def autocorrelate(input):
+    autocorr = input[16:] * input[:-16].conj()
+    autocorr = autocorr[:16*(autocorr.size//16)].reshape(autocorr.size//16, 16).sum(1)
+    return np.convolve(np.abs(autocorr), np.ones(9), 'same')
+
 class WiFi_802_11:
     def __init__(self):
         self.rates = [Rate(0xd, qam.bpsk , cc.puncturingSchedule[(1,2)]), Rate(0xf, qam.qpsk , cc.puncturingSchedule[(1,2)]),
@@ -188,6 +193,11 @@ class WiFi_802_11:
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
     def decode(self, input, lsnr=None):
+        score = autocorrelate(np.r_[np.zeros(16), input])[1:]
+        #score2 = -score * np.r_[0, np.diff(score, 2), 0]
+        #import pdb;pdb.set_trace()
+        startIndex = np.max(0, 16*np.argmax(score)-64) #72)
+        input = input[startIndex:]
         input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
         llr, length_bits_estimate = self.demodulate(input, training_data)
         if llr is None:

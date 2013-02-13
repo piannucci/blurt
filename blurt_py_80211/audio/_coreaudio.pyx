@@ -347,11 +347,18 @@ def stopPlayback(cb):
 
 
 def startRecording(cb, sampleRate, device):
-    # Get the default sound input device
     cdef AudioDeviceID inputDeviceID = 0
-    AudioObjectGetGlobalProperty(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultInputDevice, sizeof(inputDeviceID), &inputDeviceID)
-    if not inputDeviceID:
-        raise RuntimeError, "Default audio device was unknown."
+    if device is None:
+        # Get the default sound input device
+        AudioObjectGetGlobalProperty(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultInputDevice, sizeof(inputDeviceID), &inputDeviceID)
+        if not inputDeviceID:
+            raise RuntimeError, "Default audio device was unknown."
+    else:
+        devices = getDevices()
+        if 0 <= device < len(devices):
+            inputDeviceID = devices[device]
+        else:
+            raise RuntimeError, "No such audio device."
 
     cdef UInt32 bufSize = 512
     AudioObjectSetInputProperty(inputDeviceID, kAudioDevicePropertyBufferFrameSize, sizeof(bufSize), &bufSize)
