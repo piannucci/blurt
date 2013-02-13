@@ -31,7 +31,7 @@ def test():
         return False, bitrate
 
 def testOut(message):
-    rate, length = 1, len(message)
+    length = len(message)
     input_octets = np.array(map(ord, message))
     output = wifi.encode(input_octets, rate)
     input = audioLoopback.audioOut(output, Fs, Fc, upsample_factor, mask_noise)

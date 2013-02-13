@@ -196,7 +196,7 @@ class WiFi_802_11:
         score = autocorrelate(np.r_[np.zeros(16), input])[1:]
         #score2 = -score * np.r_[0, np.diff(score, 2), 0]
         #import pdb;pdb.set_trace()
-        startIndex = np.max(0, 16*np.argmax(score)-64) #72)
+        startIndex = max(0, 16*np.argmax(score)-64) #72)
         input = input[startIndex:]
         input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
         llr, length_bits_estimate = self.demodulate(input, training_data)
