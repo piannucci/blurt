@@ -193,7 +193,7 @@ class WiFi_802_11:
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
     def decode(self, input, lsnr=None):
-        score = autocorrelate(np.r_[np.zeros(16), input])[1:]
+        score = autocorrelate(input)
         #score2 = -score * np.r_[0, np.diff(score, 2), 0]
         #import pdb;pdb.set_trace()
         startIndex = max(0, 16*np.argmax(score)-64) #72)
