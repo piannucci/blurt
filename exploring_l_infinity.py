@@ -3,6 +3,7 @@ from pylab import *
 from scipy.optimize import *
 from numpy import *
 import time
+import sys
 
 N = 64
 upsample_factor = 16
@@ -17,7 +18,6 @@ def df(x, p=10):
     y = array(z + M*x)
     ay = absolute(y)
     y = ay**(p-2) * y.conj()
-    #y = (ay==ay.max()) * y.conj()
     u = (y * array(M)).sum(0)
     u *= (absolute(u)**2).sum()**-.5
     return matrix(u.conj().reshape(12,1))
@@ -105,3 +105,7 @@ def processResults(a, p=99):
     print 'can increase SNR by %.4f dB' % change_SNR
     print 'while increasing power by %.4f dB' % change_power
     print 'for a power efficiency of %.1f%%' % (100 * change_SNR / change_power)
+
+if __name__=='__main__':
+    if len(sys.argv) > 1:
+        go(int(sys.argv[1])).dump(sys.argv[2])
