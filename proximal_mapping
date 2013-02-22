@@ -1,0 +1,29 @@
+B = {x | sum_i sqrt(x_i^2 + x_{i+n}^2) <= 1}
+
+How to project x onto B?
+
+Let y_i = sqrt(x_{2i}^2 + x_{2i+1}^2).
+1) Sort y_i in descending order
+2) Move 1 units of earth by flattening the top of the mountain
+3) Height of mountain is lambda
+4) prox_th(x) = sum_i (e_{2i} x_{2i} + e_{2i+1} x_{2i+1}) x_k min(1, lambda/|x_k|)
+
+x = random.standard_normal(128)
+x = x[:64] + 1j*x[:64]
+
+Y = abs(x)
+Y.sort()
+Ym = Y[-1]
+Y = Ym - Y[::-1]
+Y_sum = cumsum(Y)
+# Y_sum[i] = sum(Y[:i+1])
+i = bisect.bisect_left(Y_sum, 1)
+# Y_sum[:i] < 1 && Y_sum[i:] >= 1
+# but Y[0] == 0, so Y_sum[0] = 0, and
+# hence i >= 1
+# Y_sum[i-1] < 1 && Y_sum[i] >= 1
+# sum(Y[:i]) < 1 <= sum(Y[:i]) + Y[i]
+# 0 < 1-sum(Y[:i]) <= Y[i]
+mass = Ym*i
+l = (Ym-Y[i-1]) + (1 - Y_sum[i-1]) / float(i)
+x2 = x * clip(1 - l/Y, 0, inf)
