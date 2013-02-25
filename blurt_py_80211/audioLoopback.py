@@ -28,6 +28,6 @@ def audioOut(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
     output = processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
     audio.play(output, loopback_Fs)
 
-def audioIn(loopback_Fs, loopback_Fc, upsample_factor):
-    input = audio.record(int(loopback_Fs*5.), loopback_Fs)
+def audioIn(loopback_Fs, loopback_Fc, upsample_factor, duration=5.):
+    input = audio.record(int(loopback_Fs*duration), loopback_Fs)
     return processInput(input, loopback_Fs, loopback_Fc, upsample_factor)

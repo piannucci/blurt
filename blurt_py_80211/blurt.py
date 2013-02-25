@@ -36,6 +36,6 @@ def testOut(message):
     output = wifi.encode(input_octets, rate)
     input = audioLoopback.audioOut(output, Fs, Fc, upsample_factor, mask_noise)
 
-def testIn():
-    input = audioLoopback.audioIn(Fs, Fc, upsample_factor)
+def testIn(duration=5.):
+    input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
     return ''.join(map(chr, wifi.decode(input, lsnr)))
