@@ -4,6 +4,9 @@ from scipy.optimize import *
 from numpy import *
 import time
 import sys
+import bisect
+
+ion()
 
 N = 64
 upsample_factor = 16
@@ -36,13 +39,35 @@ def step(z, x, dx):
       l *= r
     return x - dx * last_l, last_l
 
-def minimize(z):
+def minimizePeaks(z):
     x = matrix(zeros((12,1),complex128))
     for i in xrange(20):
         x, l = step(z, x, df(z, x, 10))
         if l < 1e-4:
             break
     return x
+
+def projOnto1NormUnitBall(x):
+    x = array(x).flatten()
+    y = absolute(x)
+    idx = y.argsort()
+    Y = y[idx]
+    Ym = Y[-1]
+    Y = Ym - Y[::-1]
+    Y_sum = cumsum(Y)
+    Y_water = (arange(Y_sum.size)+1) * Y - Y_sum
+    i = bisect.bisect_left(Y_water, 1)
+    level = Y[i-1] + (1.-Y_water[i-1]) / float(i)
+    height = max(0, Ym - level)
+    return matrix(x * clip(y - height, 0, inf) / y).T
+
+# def minimizePeaks(z):
+#     x = matrix(zeros((12,1),complex128))
+#     t = 100.
+#     for i in xrange(10):
+#         y = z+M*x
+#         x = M.H * (y - t * projOnto1NormUnitBall(y/t))
+#     return x
 
 def go(count, visualize=False):
     j = 0
@@ -54,7 +79,7 @@ def go(count, visualize=False):
         Z = r_[Z[:32], zeros(N*(upsample_factor-1)), Z[32:]]
         fftsize = N * upsample_factor
         z = matrix(fft.ifft(Z)).T
-        x = minimize(z)
+        x = minimizePeaks(z)
         y = z + M*x
         L0 = amax(abs(array(z)))
         L1 = amax(abs(array(y)))
