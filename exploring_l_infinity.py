@@ -11,10 +11,10 @@ fftsize = N * upsample_factor
 F = matrix(exp(1j*2*pi*arange(fftsize)[:,newaxis]*arange(fftsize)[newaxis,:]/float(fftsize)) / fftsize)
 M = hstack((F[:,0], F[:,27:32], F[:,-32:-26]))
 
-def f(x):
+def f(z, x):
     return absolute(array(z + M*x)).max()
 
-def df(x, p=10):
+def df(z, x, p=10):
     y = array(z + M*x)
     ay = absolute(y)
     y = ay**(p-2) * y.conj()
@@ -22,13 +22,13 @@ def df(x, p=10):
     u *= (absolute(u)**2).sum()**-.5
     return matrix(u.conj().reshape(12,1))
 
-def step(x, dx):
+def step(z, x, dx):
     l = 1e-3
     r = 2.
-    obj = f(x)
+    obj = f(z, x)
     last_l = 0.
     while True:
-      obj2 = f(x - dx * l)
+      obj2 = f(z, x - dx * l)
       if obj2 > obj:
         break
       obj = obj2
@@ -36,8 +36,15 @@ def step(x, dx):
       l *= r
     return x - dx * last_l, last_l
 
+def minimize(z):
+    x = matrix(zeros((12,1),complex128))
+    for i in xrange(20):
+        x, l = step(z, x, df(z, x, 10))
+        if l < 1e-4:
+            break
+    return x
+
 def go(count, visualize=False):
-    global z
     j = 0
     results = []
     while j < count:
@@ -47,11 +54,7 @@ def go(count, visualize=False):
         Z = r_[Z[:32], zeros(N*(upsample_factor-1)), Z[32:]]
         fftsize = N * upsample_factor
         z = matrix(fft.ifft(Z)).T
-        x = matrix(zeros((12,1),complex128))
-        for i in xrange(20):
-            x, l = step(x, df(x, 10))
-            if l < 1e-4:
-                break
+        x = minimize(z)
         y = z + M*x
         L0 = amax(abs(array(z)))
         L1 = amax(abs(array(y)))
