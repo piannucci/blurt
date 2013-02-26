@@ -2,12 +2,18 @@ import time, numpy
 import thread
 import _coreaudio
 import time
+import Queue
+
+mainThreadQueue = Queue.Queue()
+outBufSize = _coreaudio.getOutBufSize()
+inBufSize = _coreaudio.getInBufSize()
+sleepDuration = .1
 
 class AudioInterface(object):
     def __init__(self, device=None):
         self.playbackOffset = 0
         self.recordingOffset = 0
-        self.recordingBuffer = []
+        self.recordingBuffer = None
         self.playbackBuffer = None
         self.shouldStop = False
         self.device = None
@@ -22,7 +28,7 @@ class AudioInterface(object):
             buffer[:y.shape[0]] = y
             buffer[y.shape[0]:] = 0
             self.playbackOffset += count
-            if self.playbackOffset >= self.playbackBuffer.shape[0] + 512*10:
+            if self.playbackOffset >= self.playbackBuffer.shape[0] + outBufSize*10:
                 return True
         if self.shouldStop:
             return True
@@ -42,26 +48,40 @@ class AudioInterface(object):
     def play(self, buffer, Fs):
         self.playbackBuffer = buffer
         _coreaudio.startPlayback(self, Fs, self.device)
-    def record(self, length, Fs):
-        self.recordingLength = length
+    def record(self, count_or_stream, Fs):
+        if hasattr(count_or_stream, 'append'):
+            self.recordingLength = len(count_or_stream)
+            self.recordingBuffer = count_or_stream
+        else:
+            self.recordingLength = count_or_stream
+            self.recordingBuffer = []
         _coreaudio.startRecording(self, Fs, self.device)
     def isPlaying(self):
         return hasattr(self, 'playbackDeviceID')
     def isRecording(self):
         return hasattr(self, 'recordingDeviceID')
+    def idle(self):
+        try:
+            f = mainThreadQueue.get_nowait()
+        except:
+            pass
+        else:
+            f()
     def wait(self):
         try:
             while self.isPlaying() or self.isRecording():
-                time.sleep(.1)
+                time.sleep(sleepDuration)
+                self.idle()
         except KeyboardInterrupt:
             self.shouldStop = True
             while self.isPlaying() or self.isRecording():
-                time.sleep(.1)
+                time.sleep(sleepDuration)
+                self.idle()
         if hasattr(self, 'playbackException'):
             raise self.playbackException
         elif hasattr(self, 'recordingException'):
             raise self.recordingException
-        if len(self.recordingBuffer):
+        if isinstance(self.recordingBuffer, (tuple, list)):
             return numpy.hstack(self.recordingBuffer)
         return None
     def stop(self):
@@ -79,10 +99,10 @@ def play(buffer, Fs, device=None):
         ap.stop()
     return ap.wait()
 
-def record(count, Fs, device=None):
+def record(count_or_stream, Fs, device=None):
     ap = AudioInterface(device)
     try:
-        ap.record(count, Fs)
+        ap.record(count_or_stream, Fs)
     except KeyboardInterrupt:
         ap.stop()
     return ap.wait()
@@ -95,3 +115,6 @@ def play_and_record(buffer, Fs, device=None):
     except KeyboardInterrupt:
         ap.stop()
     return ap.wait()
+
+def add_to_main_thread_queue(fn):
+    mainThreadQueue.put_nowait(fn)

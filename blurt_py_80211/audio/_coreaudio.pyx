@@ -291,6 +291,11 @@ def getDevices():
     free(devices)
     return result
 
+cdef UInt32 outBufSize = 512
+
+def getOutBufSize():
+    return outBufSize
+
 def startPlayback(cb, sampleRate, device):
     cdef AudioDeviceID outputDeviceID = 0
     if device is None:
@@ -305,8 +310,7 @@ def startPlayback(cb, sampleRate, device):
         else:
             raise RuntimeError, "No such audio device."
 
-    cdef UInt32 bufSize = 512
-    AudioObjectSetOutputProperty(outputDeviceID, kAudioDevicePropertyBufferFrameSize, sizeof(bufSize), &bufSize)
+    AudioObjectSetOutputProperty(outputDeviceID, kAudioDevicePropertyBufferFrameSize, sizeof(outBufSize), &outBufSize)
 
     cdef AudioStreamBasicDescription sbd
     sbd.mSampleRate = sampleRate
@@ -345,6 +349,10 @@ def stopPlayback(cb):
     del cb.playbackStarted
     Py_DECREF(cb)
 
+cdef UInt32 inBufSize = 512
+
+def getInBufSize():
+    return inBufSize
 
 def startRecording(cb, sampleRate, device):
     cdef AudioDeviceID inputDeviceID = 0
@@ -360,8 +368,7 @@ def startRecording(cb, sampleRate, device):
         else:
             raise RuntimeError, "No such audio device."
 
-    cdef UInt32 bufSize = 512
-    AudioObjectSetInputProperty(inputDeviceID, kAudioDevicePropertyBufferFrameSize, sizeof(bufSize), &bufSize)
+    AudioObjectSetInputProperty(inputDeviceID, kAudioDevicePropertyBufferFrameSize, sizeof(inBufSize), &inBufSize)
 
     cdef AudioStreamBasicDescription sbd
     sbd.mSampleRate = sampleRate
