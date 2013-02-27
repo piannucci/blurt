@@ -5,20 +5,22 @@ import Queue
 import sys
 
 class StreamArray(np.ndarray):
-    def __new__(cls, dtype=np.float32, *args):
+    def __new__(cls, *args, **kwargs):
         obj = np.asarray([]).view(cls)
         obj.args = args
-        obj.dtype = dtype
+        obj.kwargs = kwargs
+        obj.dtype = kwargs['dtype'] if 'dtype' in kwargs else np.float32
+        obj.init()
         return obj
     def __array__(self, dtype=None):
         if dtype is not None:
-            return StreamArray(dtype, *self.args)
+            return StreamArray(*self.args, **self.kwargs)
         return self
     def __array_finalize__(self, obj):
         if obj is None:
             return
         self.args = getattr(obj, 'args', ())
-        self.init()
+        self.kwargs = getattr(obj, 'kwargs', {})
     def __len__(self):
         return sys.maxint
     def __getslice__(self, i, j):
@@ -86,14 +88,23 @@ class WhiteNoise(ThreadedStream):
         return np.random.standard_normal(1024) * .2
 
 class VUMeter(ThreadedStream):
+    def init(self):
+        super(VUMeter, self).init()
+        self.peak = 0.
+        self.Fs = self.kwargs['Fs'] if 'Fs' in self.kwargs else 96000.
     def thread_consume(self, sequence):
-        volume = int(round(10.*np.log10(np.sum(sequence.astype(float)**2))))
-        sys.stdout.write('\r\x1b[K' + '#' * volume)
+        volume = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).mean())))
+        peak = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).max())))
+        self.peak = max(peak, self.peak-8*sequence.size/self.Fs)
+        bar = '#'*volume
+        n = int(np.ceil(self.peak))
+        bar = bar + ' ' * (n-len(bar)) + '|'
+        sys.stdout.write('\r\x1b[K' + bar)
         sys.stdout.flush()
 
-class WaveformDisplay(ThreadedStream):
+class Oscilloscope(ThreadedStream):
     def init(self):
-        super(WaveformDisplay, self).init()
+        super(Oscilloscope, self).init()
         import pylab as pl
         self.pl = pl
         self.fig = pl.figure()

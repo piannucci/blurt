@@ -2,6 +2,7 @@
 import numpy as np
 import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
+import audio, audio.stream
 
 wifi = wifi80211.WiFi_802_11()
 
@@ -39,3 +40,10 @@ def testOut(message):
 def testIn(duration=5.):
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
     return ''.join(map(chr, wifi.decode(input, lsnr)))
+
+def testInStream():
+    vumeter = audio.stream.VUMeter(Fs=float(Fs)/upsample_factor/16.)
+    #oscilloscope = audio.stream.Oscilloscope(aggregate=32)
+    autocorrelator = wifi80211.Autocorrelator(next=vumeter)
+    downconverter = audioLoopback.downconverter(autocorrelator, Fs, Fc, upsample_factor)
+    audio.record(downconverter, Fs)

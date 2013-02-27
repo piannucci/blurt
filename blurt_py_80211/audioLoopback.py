@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
-import audio
+import audio, audio.stream
 import util, iir
 
 def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
@@ -31,3 +31,21 @@ def audioOut(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
 def audioIn(loopback_Fs, loopback_Fc, upsample_factor, duration=5.):
     input = audio.record(int(loopback_Fs*duration), loopback_Fs)
     return processInput(input, loopback_Fs, loopback_Fc, upsample_factor)
+
+def downconverter(next, loopback_Fs, loopback_Fc, upsample_factor):
+    class Downconverter(audio.stream.ThreadedStream):
+        def init(self):
+            super(Downconverter, self).init()
+            self.next = self.kwargs['next']
+            self.iir_state = np.zeros(6)
+            self.iir = iir.lowpass(.8/upsample_factor)
+            self.i = 0
+            self.s = -1j * 2 * np.pi * loopback_Fc / loopback_Fs
+        def thread_consume(self, input):
+            input = input * np.exp(self.s * (self.i + np.arange(input.size)))
+            self.i += input.size
+            input = self.iir(np.r_[self.iir_state, input])
+            self.iir_state = input[-6:]
+            input = input[6::upsample_factor]
+            self.next.consume(input)
+    return Downconverter(next=next)

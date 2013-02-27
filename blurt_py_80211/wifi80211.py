@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 import util, cc, ofdm, scrambler, interleaver, qam, crc
+import audio.stream
 
 code = cc.ConvolutionalCode()
 ofdm = ofdm.OFDM()
@@ -206,4 +207,25 @@ class WiFi_802_11:
         if not crc.checkFCS(output_bits[16:]):
             return None
         return util.shiftin(output_bits[16:-32], 8)
+
+# produces 4 outputs before first output of autocorrelate()
+class Autocorrelator:
+    def __init__(self, next=None):
+        self.input_fragment = np.zeros(16, np.complex128)
+        self.corr_fragment = np.zeros(8, np.float64)
+        self.next = next if next is not None else []
+    def consume(self, input):
+        # we only process input in 16-sample chunks
+        stream = np.r_[self.input_fragment, input]
+        n = 16*((stream.size-16)//16)
+        self.input_fragment = stream[n:]
+        if n:
+            input = stream[:n+16]
+            corr = stream[16:n+16] * stream[:n].conj()
+            corr = np.abs(corr.reshape(n//16, 16).sum(1))
+            corr = np.r_[self.corr_fragment, corr]
+            self.corr_fragment = corr[-9:]
+            corr_sum = corr.cumsum()
+            output = corr_sum[9:] - corr_sum[:-9]
+            self.next.consume(output)
 
