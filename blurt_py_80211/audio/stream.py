@@ -9,9 +9,13 @@ class StreamArray(np.ndarray):
         obj = np.asarray([]).view(cls)
         obj.args = args
         obj.kwargs = kwargs
-        obj.dtype = kwargs['dtype'] if 'dtype' in kwargs else np.float32
+        obj.dtype = obj.kwarg('dtype', np.float32)
         obj.init()
         return obj
+    def kwarg(self, name, default=None):
+        if name in self.kwargs:
+            return self.kwargs[name]
+        return default
     def __array__(self, dtype=None):
         if dtype is not None:
             return StreamArray(*self.args, **self.kwargs)
@@ -82,6 +86,10 @@ class ThreadedStream(StreamArray):
                 if fragment.size > n:
                     self.out_fragment = fragment[n:]
         return result
+    def onMainThread(self, fn):
+        ca.add_to_main_thread_queue(fn)
+    def stop(self):
+        self.in_queue.put(None)
 
 class WhiteNoise(ThreadedStream):
     def thread_produce(self):
@@ -91,7 +99,7 @@ class VUMeter(ThreadedStream):
     def init(self):
         super(VUMeter, self).init()
         self.peak = 0.
-        self.Fs = self.kwargs['Fs'] if 'Fs' in self.kwargs else 96000.
+        self.Fs = self.kwarg('Fs', 96000.)
     def thread_consume(self, sequence):
         volume = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).mean())))
         peak = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).max())))
@@ -102,18 +110,70 @@ class VUMeter(ThreadedStream):
         sys.stdout.write('\r\x1b[K' + bar)
         sys.stdout.flush()
 
-class Oscilloscope(ThreadedStream):
+class Visualizer(ThreadedStream):
     def init(self):
-        super(Oscilloscope, self).init()
+        super(Visualizer, self).init()
         import pylab as pl
         self.pl = pl
         self.fig = pl.figure()
         self.ax = pl.gca()
-        self.line = self.ax.plot(np.zeros(ca.inBufSize))[0]
-        self.ax.set_ylim(-.5,.5)
         widget = self.fig.canvas.get_tk_widget()
         widget.winfo_toplevel().lift()
         ca.sleepDuration = .01
+    def draw(self):
+        self.onMainThread(self.pl.draw)
+
+class Oscilloscope(Visualizer):
+    def init(self):
+        super(Oscilloscope, self).init()
+        self.line = self.ax.plot(np.zeros(ca.inBufSize))[0]
+        self.ax.set_ylim(-.5,.5)
     def thread_consume(self, sequence):
         self.line.set_ydata(sequence)
-        ca.add_to_main_thread_queue(self.pl.draw)
+        self.draw()
+
+class SpectrumAnalyzer(Visualizer):
+    def init(self):
+        super(SpectrumAnalyzer, self).init()
+        self.Fs = self.kwarg('Fs', 96000.)
+        self.Fc = self.kwarg('Fc', 0.)
+        self.NFFT = self.kwarg('NFFT', 256)
+        self.noverlap = self.kwarg('noverlap', 128)
+        self.window = self.kwarg('window',
+                                 self.pl.mlab.window_hanning)(np.ones(self.NFFT))
+        self.duration = self.kwarg('duration', 1.)
+        self.transpose = self.kwarg('transpose', False)
+        self.sides = self.kwarg('sides', 1)
+        self.advance = self.NFFT - self.noverlap
+        self.columns = int(round(self.duration * self.Fs / self.advance))
+        self.buffer = np.zeros((self.NFFT*self.sides/2, self.columns), np.float32)
+        self.t = 0.
+        #self.im = self.ax.imshow(self.buffer if not self.transpose else self.buffer.T,
+        #                         vmin=0., vmax=1.,
+        #                         extent=(self.t, self.t+self.duration, -self.Fs/2, self.Fs/2),
+        #                         aspect='auto', interpolation='none')
+        self.im = self.fig.figimage(self.buffer if not self.transpose else self.buffer.T,
+                                    xo=10, yo=10)
+        self.fig.delaxes(self.ax)
+        self.input_fragment = np.zeros(0, np.complex128)
+    def thread_consume(self, input):
+        stream = np.r_[self.input_fragment, input]
+        n = max(1 + (stream.size-self.NFFT) // self.advance, 0)
+        if n < 4: n = 0
+        self.input_fragment = stream[n*self.advance:]
+        if n > 0:
+            input = stream[:self.NFFT + (n-1)*self.advance]
+            idx = np.arange(self.NFFT)[:,np.newaxis] + self.advance * np.arange(n)[np.newaxis,:]
+            input = input[idx] * self.window[:,np.newaxis]
+            input = np.fft.fftshift(np.fft.fft(input, axis=0), 0)
+            input = (np.log10(np.abs(input)) / 5.) + 1
+            self.buffer[:,:-n] = self.buffer[:,n:]
+            self.buffer[:,-n:] = input[:(2-self.sides)*self.NFFT/2]
+            self.im.set_data(self.buffer if not self.transpose else self.buffer.T)
+            #self.im.set_extent((self.t, self.t+self.duration, -self.Fs/2, self.Fs/2))
+            #self.ax.set_xlim(self.t, self.t+self.duration)
+            #self.ax.set_ylim(0, self.Fs/2)
+            self.t += n * self.advance / self.Fs
+            self.fig.draw_artist(self.im)
+            self.onMainThread(self.fig.canvas.blit)
+

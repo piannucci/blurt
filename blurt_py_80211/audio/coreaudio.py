@@ -81,6 +81,8 @@ class AudioInterface(object):
             raise self.playbackException
         elif hasattr(self, 'recordingException'):
             raise self.recordingException
+        if hasattr(self.recordingBuffer, 'stop'):
+            self.recordingBuffer.stop()
         if isinstance(self.recordingBuffer, (tuple, list)):
             return numpy.hstack(self.recordingBuffer)
         return None
