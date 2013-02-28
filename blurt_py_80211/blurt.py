@@ -28,7 +28,8 @@ def test():
         bitrate = input_octets.size*8 * Fs / float(output.size) / upsample_factor
     try:
         return wifi.decode(input, lsnr) is not None, bitrate
-    except:
+    except Exception, e:
+        print e
         return False, bitrate
 
 def testOut(message):
@@ -39,7 +40,8 @@ def testOut(message):
 
 def testIn(duration=5.):
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
-    return ''.join(map(chr, wifi.decode(input, lsnr)))
+    result = wifi.decode(input, lsnr)
+    return ''.join(map(chr, result)) if result is not None else None
 
 def testInStream():
     vumeter = audio.stream.VUMeter(Fs=float(Fs)/upsample_factor/16.)
