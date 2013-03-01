@@ -20,8 +20,7 @@ matrix_3_2 = np.array([0,0,1,0,1,0])
 matrix_2_1 = np.array([0,0,0,1,0,0,1,0])
 matrices = [matrix_1_2, matrix_2_3, matrix_3_4, matrix_5_6, matrix_7_8, matrix_1_1, matrix_3_2, matrix_2_1]
 rates = [(1,2), (2,3), (3,4), (5,6), (7,8), (1,1), (3,2), (2,1)]
-puncturingSchedule = dict(zip(rates, matrices))
-puncturingSchedule = dict(zip(rates, puncturingSchedule.items()))
+puncturingSchedule = dict(zip(rates, zip(rates, matrices)))
 
 class ConvolutionalCode:
     def __init__(self, code=standard_cc):
