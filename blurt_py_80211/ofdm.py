@@ -2,6 +2,15 @@
 import numpy as np
 import scrambler, util
 
+# short training sequence
+sts_freq = (13./6.)**.5 * np.array([
+    0, 0, 0, 0, -1-1j, 0, 0, 0, -1-1j, 0, 0, 0, 1+1j, 0, 0, 0,
+    1+1j, 0, 0, 0, 1+1j, 0, 0, 0, 1+1j, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 1+1j, 0, 0, 0, -1-1j, 0, 0, 0,
+    1+1j, 0, 0, 0, -1-1j, 0, 0, 0, -1-1j, 0, 0, 0, 1+1j, 0, 0, 0])
+sts = np.fft.ifft(sts_freq)
+sts_final = np.tile(sts, 4)[32:][:161]
+
 # long training sequence
 # taken from slide 30 of
 # http://140.117.160.140/course/pdfdownload/9222/Introduction_to_OFDM.pdf
@@ -11,14 +20,7 @@ lts_freq = np.array([
     0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1,
     1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
 lts = np.fft.ifft(lts_freq)
-
-# short training sequence
-sts_freq = (13./6.)**.5 * np.array([
-    0, 0, 0, 0, -1-1j, 0, 0, 0, -1-1j, 0, 0, 0, 1+1j, 0, 0, 0,
-    1+1j, 0, 0, 0, 1+1j, 0, 0, 0, 1+1j, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 1+1j, 0, 0, 0, -1-1j, 0, 0, 0,
-    1+1j, 0, 0, 0, -1-1j, 0, 0, 0, -1-1j, 0, 0, 0, 1+1j, 0, 0, 0])
-sts = np.fft.ifft(sts_freq)[:16]
+lts_final = np.tile(lts, 4)[32:][:161]
 
 def stitch(*x):
     output = np.zeros(sum(len(xx)-1 for xx in x)+1,np.complex)
@@ -37,20 +39,19 @@ class OFDM:
         self.pilotSubcarriers = np.array([32-21, 32-7, 32+7, 32+21])
         self.pilotTemplate = np.array([1,1,1,-1])
         self.Nsc = 48
-        self.sts = sts
-        self.sts_freq = sts_freq
-        self.lts = lts
+        self.nfft = 64
+        self.ncp = 64
         self.lts_freq = lts_freq
     def pilotPolarity(self):
         return (1 - 2 * x for x in scrambler.scrambler(0x7F))
     def encodeSymbols(self, dataSubcarriers, pilotPolarity):
         Ns = dataSubcarriers.shape[0]
-        symbols = np.zeros((Ns,64), np.complex)
+        symbols = np.zeros((Ns,self.nfft), np.complex)
         symbols[:,self.dataSubcarriers] = dataSubcarriers
         symbols[:,self.pilotSubcarriers] = self.pilotTemplate * np.array(list(util.truncate(pilotPolarity, Ns)))[:,np.newaxis]
-        return np.tile(np.fft.ifft(np.fft.ifftshift(symbols, axes=(-1,))), (1,3))[:,-80-64:-63]
+        return np.tile(np.fft.ifft(np.fft.ifftshift(symbols, axes=(-1,))), (1,3))[:,self.nfft-self.ncp:2*self.nfft+1]
     def encode(self, signal_subcarriers, data_subcarriers):
         pilotPolarity = self.pilotPolarity()
         signal_output = self.encodeSymbols(signal_subcarriers[np.newaxis,:], pilotPolarity)
         data_output = self.encodeSymbols(data_subcarriers, pilotPolarity)
-        return stitch(np.tile(sts, 11)[:-15], np.tile(lts, 4)[-160-64:-63], signal_output[0], *data_output)
+        return stitch(sts_final, lts_final, signal_output[0], *data_output)
