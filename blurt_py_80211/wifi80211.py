@@ -145,7 +145,7 @@ class WiFi_802_11:
         u /= np.abs(u)
         return (P, x, Q, H, R, I), u
 
-    def demodulate(self, input, (G, uncertainty, var_n)):
+    def demodulate(self, input, (G, uncertainty, var_n), visualize=False):
         nfft = ofdm.nfft
         ncp = ofdm.ncp
         kalman_state = self.kalman_init(uncertainty, var_n)
@@ -153,11 +153,12 @@ class WiFi_802_11:
         demapped_bits = []
         j = ncp - 16
         i = 0
-        import pylab as pl
-        pl.figure()
-        pl.axis('scaled')
-        pl.xlim(-1.5,1.5)
-        pl.ylim(-1.5,1.5)
+        if visualize:
+            import pylab as pl
+            pl.figure()
+            pl.axis('scaled')
+            pl.xlim(-1.5,1.5)
+            pl.ylim(-1.5,1.5)
         length_symbols = 0
         while input.size-j > nfft and i <= length_symbols:
             sym = np.fft.fftshift(np.fft.fft(input[j:j+nfft])*G)
@@ -192,11 +193,14 @@ class WiFi_802_11:
                 dispersion = data - qam.bpsk[1][interleaver.interleave(signal_bits, ofdm.Nsc, 1)]
                 dispersion = np.var(dispersion)
             else:
-                pl.scatter(data.real, data.imag, c=np.arange(data.size))
+                if visualize:
+                    pl.scatter(data.real, data.imag, c=np.arange(data.size))
                 ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
                 demapped_bits.append(ll.flatten())
             j += nfft+ncp
             i += 1
+        if len(demapped_bits) == 0:
+            return None, None
         punctured_bits_estimate = interleaver.interleave(np.concatenate(demapped_bits), Ncbps, Nbpsc, True)
         coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
         if coded_bits.size < length_coded_bits:
@@ -213,6 +217,8 @@ class WiFi_802_11:
         #import pdb;pdb.set_trace()
         startIndex = max(0, 16*np.argmax(score)-64) #72)
         input = input[startIndex:]
+        if input.size <= 328:
+            return None
         input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
         llr, length_bits = self.demodulate(input, training_data)
         if llr is None:

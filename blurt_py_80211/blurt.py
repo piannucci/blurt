@@ -9,7 +9,7 @@ wifi = wifi80211.WiFi_802_11()
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 96000.
 Fc = 16000.
-upsample_factor = 16
+upsample_factor = 32
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
@@ -36,7 +36,7 @@ def testOut(message):
     length = len(message)
     input_octets = np.array(map(ord, message))
     output = wifi.encode(input_octets, rate)
-    input = audioLoopback.audioOut(output, Fs, Fc, upsample_factor, mask_noise)
+    audioLoopback.audioOut(output, Fs, Fc, upsample_factor, mask_noise)
 
 def testIn(duration=5.):
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
@@ -49,3 +49,14 @@ def testInStream():
     autocorrelator = wifi80211.Autocorrelator(next=vumeter)
     downconverter = audioLoopback.downconverter(autocorrelator, Fs, Fc, upsample_factor)
     audio.record(downconverter, Fs)
+
+def inLoop():
+    i = 0
+    while True:
+        sys.stdout.write('\r\x1b[KListening...' + ('.' if i % 2 else ''))
+        sys.stdout.flush()
+        result = testIn(1.)
+        if result:
+            sys.stdout.write('\n' + result + '\n')
+            sys.stdout.flush()
+        i += 1
