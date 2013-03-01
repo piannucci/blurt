@@ -13,9 +13,8 @@ class Rate:
         self.constellation = constellation
         self.puncturingRatio = puncturingRatio
         self.puncturingMatrix = puncturingMatrix
-        self.linkRate = 12 * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
         self.Nbps = ofdm.Nsc * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
-        self.Ncbps = ofdm.Nsc * self.Nbpsc
+        self.Ncbps = ofdm.Nsc * Nbpsc
 
 def autocorrelate(input):
     autocorr = input[16:] * input[:-16].conj()
@@ -24,10 +23,14 @@ def autocorrelate(input):
 
 class WiFi_802_11:
     def __init__(self):
-        self.rates = [Rate(0xd, qam.bpsk , cc.puncturingSchedule[(1,2)]), Rate(0xf, qam.qpsk , cc.puncturingSchedule[(1,2)]),
-                      Rate(0x5, qam.qpsk , cc.puncturingSchedule[(3,4)]), Rate(0x7, qam.qam16, cc.puncturingSchedule[(1,2)]),
-                      Rate(0x9, qam.qam16, cc.puncturingSchedule[(3,4)]), Rate(0xb, qam.qam64, cc.puncturingSchedule[(2,3)]),
-                      Rate(0x1, qam.qam64, cc.puncturingSchedule[(3,4)]), Rate(0x3, qam.qam64, cc.puncturingSchedule[(5,6)])]
+        self.rates = [Rate(0xd, qam.bpsk , cc.puncturingSchedule[(1,2)]),
+                      Rate(0xf, qam.qpsk , cc.puncturingSchedule[(1,2)]),
+                      Rate(0x5, qam.qpsk , cc.puncturingSchedule[(3,4)]),
+                      Rate(0x7, qam.qam16, cc.puncturingSchedule[(1,2)]),
+                      Rate(0x9, qam.qam16, cc.puncturingSchedule[(3,4)]),
+                      Rate(0xb, qam.qam64, cc.puncturingSchedule[(2,3)]),
+                      Rate(0x1, qam.qam64, cc.puncturingSchedule[(3,4)]),
+                      Rate(0x3, qam.qam64, cc.puncturingSchedule[(5,6)])]
 
     def plcp_bits(self, rate, octets):
         plcp_rate = util.rev(rate.encoding, 4)
@@ -56,8 +59,9 @@ class WiFi_802_11:
         snr = 10.**(.1*lsnr)
         freq_off_estimate = -np.angle(np.sum(input[:144] * input[16:160].conj()))/(2*np.pi*.8e-6)
         input *= np.exp(-2*np.pi*1j*freq_off_estimate*np.arange(input.size)/20e6)
-        #err = abs(freq_off_estimate - freq_offset)
-        #print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (20e6/64), err * 4e-6)
+        if 0:
+            err = abs(freq_off_estimate - freq_offset)
+            print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (20e6/64), err * 4e-6)
         offset = 8
         offset += 160
         lts1 = np.fft.fft(input[offset+16:offset+16+64])
@@ -82,11 +86,17 @@ class WiFi_802_11:
         #print 'Fine frequency estimation error: %.0f +/- %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, 1.5*uncertainty, err / (20e6/64), err * 4e-6)
         lts1 = np.fft.fft(input[offset+16:offset+16+64])
         lts2 = np.fft.fft(input[offset+16+64:offset+16+128])
-        HX = .5*(lts1+lts2)
+        Y = .5*(lts1+lts2)
         S_X = np.abs(ofdm.lts_freq)**2
-        H = np.where(S_X, HX/np.where(S_X, ofdm.lts_freq, 1.), 0)
-        S_N = np.ones(64) * np.var(HX) / (1+snr)
-        G = H.conj()*S_X / (np.abs(HX)**2 + S_N)
+        H = np.where(S_X, Y/np.where(S_X, ofdm.lts_freq, 1.), 0)
+        S_N = np.ones(64) * np.var(Y) / (1+snr)
+        if 1:
+            # Wiener deconvolution using estimated H
+            #G = H.conj()*S_X / (np.abs(Y)**2 + S_N)
+            G = Y.conj()*ofdm.lts_freq / (.5*np.abs(lts1)**2 + .5*np.abs(lts2)**2)
+        else:
+            # Directly invert estimated H
+            G = np.where(H, 1./np.where(H, H, 1.), 0)
         var_x = np.var(input)/(64./52./snr + 1)/52.
         var_n = var_x/snr
         offset += 160
@@ -136,16 +146,21 @@ class WiFi_802_11:
         return (P, x, Q, H, R, I), u
 
     def demodulate(self, input, (G, uncertainty, var_n)):
+        nfft = ofdm.nfft
+        ncp = ofdm.ncp
         kalman_state = self.kalman_init(uncertainty, var_n)
         pilotPolarity = ofdm.pilotPolarity()
         demapped_bits = []
+        j = ncp - 16
         i = 0
-        taps = 16
-        data_history = np.zeros((taps+1, ofdm.Nsc), dtype=complex)
-        r = np.zeros((taps+1, ofdm.Nsc), dtype=complex)
-        filter = 0.
-        while input.size>64:
-            sym = np.fft.fftshift(np.fft.fft(input[:64])*G)
+        import pylab as pl
+        pl.figure()
+        pl.axis('scaled')
+        pl.xlim(-1.5,1.5)
+        pl.ylim(-1.5,1.5)
+        length_symbols = 0
+        while input.size-j > nfft and i <= length_symbols:
+            sym = np.fft.fftshift(np.fft.fft(input[j:j+nfft])*G)
             data = sym[ofdm.dataSubcarriers]
             pilots = sym[ofdm.pilotSubcarriers] * pilotPolarity.next() * ofdm.pilotTemplate
             kalman_state, kalman_u = self.kalman_update(kalman_state, np.sum(pilots))
@@ -165,29 +180,28 @@ class WiFi_802_11:
                     rate_estimate = [r.encoding == encoding_estimate for r in self.rates].index(True)
                 except ValueError:
                     return None, None
-                Nbpsc, constellation_estimate = self.rates[rate_estimate].Nbpsc, self.rates[rate_estimate].constellation
+                r_est = self.rates[rate_estimate]
+                Nbpsc, constellation_estimate = r_est.Nbpsc, r_est.constellation
                 min_dist = np.diff(np.unique(sorted(constellation_estimate.real)))[0]
-                Ncbps = ofdm.Nsc * Nbpsc
-                true_rate_estimate = self.rates[rate_estimate].linkRate/12.
-                Nbps = int(ofdm.Nsc * true_rate_estimate)
-                length_octets_estimate = (plcp_estimate >> 5) & 0xFFF
-                length_bits_estimate = length_octets_estimate * 8
+                Ncbps, Nbps = r_est.Ncbps, r_est.Nbps
+                length_octets = (plcp_estimate >> 5) & 0xFFF
+                length_bits = length_octets * 8
+                length_coded_bits = (length_bits+16+6)*2
+                length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
                 signal_bits = code.encode(scrambled_plcp_estimate)
                 dispersion = data - qam.bpsk[1][interleaver.interleave(signal_bits, ofdm.Nsc, 1)]
                 dispersion = np.var(dispersion)
             else:
+                pl.scatter(data.real, data.imag, c=np.arange(data.size))
                 ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
                 demapped_bits.append(ll.flatten())
-            input = input[80:]
+            j += nfft+ncp
             i += 1
         punctured_bits_estimate = interleaver.interleave(np.concatenate(demapped_bits), Ncbps, Nbpsc, True)
-        puncturing_matrix = self.rates[rate_estimate].puncturingMatrix
-        coded_bits_estimate = code.depuncture(punctured_bits_estimate, puncturing_matrix)
-        target_length = (length_bits_estimate+16+6)*2
-        coded_bits_estimate = coded_bits_estimate[:target_length]
-        if coded_bits_estimate.size != target_length:
+        coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
+        if coded_bits.size < length_coded_bits:
             return None, None
-        return coded_bits_estimate, length_bits_estimate
+        return coded_bits[:length_coded_bits], length_bits
 
     def decodeFromLLR(self, llr, length_bits):
         scrambled_bits = code.decode(llr, length_bits+16)
@@ -200,10 +214,10 @@ class WiFi_802_11:
         startIndex = max(0, 16*np.argmax(score)-64) #72)
         input = input[startIndex:]
         input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
-        llr, length_bits_estimate = self.demodulate(input, training_data)
+        llr, length_bits = self.demodulate(input, training_data)
         if llr is None:
             return None
-        output_bits = self.decodeFromLLR(llr, length_bits_estimate)
+        output_bits = self.decodeFromLLR(llr, length_bits)
         if not crc.checkFCS(output_bits[16:]):
             return None
         return util.shiftin(output_bits[16:-32], 8)
@@ -222,10 +236,10 @@ class Autocorrelator:
         if n:
             input = stream[:n+16]
             corr = stream[16:n+16] * stream[:n].conj()
-            corr = np.abs(corr.reshape(n//16, 16).sum(1))
+            corr = corr.reshape(n//16, 16).sum(1)
             corr = np.r_[self.corr_fragment, corr]
             self.corr_fragment = corr[-9:]
             corr_sum = corr.cumsum()
-            output = corr_sum[9:] - corr_sum[:-9]
+            output = np.abs(corr_sum[9:] - corr_sum[:-9])
             self.next.consume(output)
 

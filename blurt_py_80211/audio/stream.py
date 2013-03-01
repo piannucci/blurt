@@ -139,8 +139,7 @@ class SpectrumAnalyzer(Visualizer):
         self.Fc = self.kwarg('Fc', 0.)
         self.NFFT = self.kwarg('NFFT', 256)
         self.noverlap = self.kwarg('noverlap', 128)
-        self.window = self.kwarg('window',
-                                 self.pl.mlab.window_hanning)(np.ones(self.NFFT))
+        self.window = self.kwarg('window', self.pl.mlab.window_hanning)(np.ones(self.NFFT))
         self.duration = self.kwarg('duration', 1.)
         self.transpose = self.kwarg('transpose', False)
         self.sides = self.kwarg('sides', 1)
