@@ -174,12 +174,14 @@ class WiFi_802_11:
                 plcp_estimate = scrambler.scramble(scrambled_plcp_estimate, int(ofdm.Nsc*.5), scramblerState=0)
                 parity = (np.sum(plcp_estimate) & 1) == 0
                 if not parity:
+                    pl.close()
                     return None, None
                 plcp_estimate = util.shiftin(plcp_estimate[:18], 18)[0]
                 try:
                     encoding_estimate = util.rev(plcp_estimate & 0xF, 4)
                     rate_estimate = [r.encoding == encoding_estimate for r in self.rates].index(True)
                 except ValueError:
+                    pl.close()
                     return None, None
                 r_est = self.rates[rate_estimate]
                 Nbpsc, constellation_estimate = r_est.Nbpsc, r_est.constellation
@@ -200,10 +202,12 @@ class WiFi_802_11:
             j += nfft+ncp
             i += 1
         if len(demapped_bits) == 0:
+            pl.close()
             return None, None
         punctured_bits_estimate = interleaver.interleave(np.concatenate(demapped_bits), Ncbps, Nbpsc, True)
         coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
         if coded_bits.size < length_coded_bits:
+            pl.close()
             return None, None
         return coded_bits[:length_coded_bits], length_bits
 
@@ -211,7 +215,7 @@ class WiFi_802_11:
         scrambled_bits = code.decode(llr, length_bits+16)
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
-    def decode(self, input, lsnr=None):
+    def decode(self, input, lsnr=None, visualize=False):
         score = autocorrelate(input)
         #score2 = -score * np.r_[0, np.diff(score, 2), 0]
         #import pdb;pdb.set_trace()
@@ -220,7 +224,7 @@ class WiFi_802_11:
         if input.size <= 328:
             return None
         input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
-        llr, length_bits = self.demodulate(input, training_data)
+        llr, length_bits = self.demodulate(input, training_data, visualize)
         if llr is None:
             return None
         output_bits = self.decodeFromLLR(llr, length_bits)
