@@ -41,3 +41,7 @@ def truncate(x, i):
     while i>0:
         i -= 1
         yield x.next()
+
+def papr(x):
+    m = np.abs(x)**2
+    return m.max()/m.mean()
