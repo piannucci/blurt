@@ -3,6 +3,8 @@ import numpy as np
 import audio, audio.stream
 import util, iir
 
+delay = .005
+
 def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
     output = util.upsample(output, upsample_factor)
     output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * loopback_Fc / loopback_Fs)).real
@@ -12,6 +14,12 @@ def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
         if mask_noise.size > output.size:
             output = np.r_[output, np.zeros(mask_noise.size-output.size)]
         output[:mask_noise.size] += mask_noise[:output.size]
+    delay_samples = int(delay*loopback_Fs)
+    # delay one channel slightly relative to the other:
+    # this breaks up the spatially-dependent frequency-correlated
+    # nulls of our speaker array
+    output = np.vstack((np.r_[np.zeros(delay_samples), output],
+                        np.r_[output, np.zeros(delay_samples)])).T
     return output
 
 def processInput(input, loopback_Fs, loopback_Fc, upsample_factor):

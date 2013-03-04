@@ -38,9 +38,9 @@ def testOut(message):
     output = wifi.encode(input_octets, rate)
     audioLoopback.audioOut(output, Fs, Fc, upsample_factor, mask_noise)
 
-def testIn(duration=5.):
+def testIn(duration=5., visualize=False):
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
-    result = wifi.decode(input, lsnr)
+    result = wifi.decode(input, lsnr, visualize)
     return ''.join(map(chr, result)) if result is not None else None
 
 def testInStream():
