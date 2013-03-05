@@ -2,9 +2,10 @@
 import numpy as np
 import util, cc, ofdm, scrambler, interleaver, qam, crc
 import audio.stream
+import pylab as pl
 
 code = cc.ConvolutionalCode()
-ofdm = ofdm.OFDM()
+ofdm = ofdm.OFDM(ofdm.LT)
 
 class Rate:
     def __init__(self, encoding, (Nbpsc, constellation), (puncturingRatio, puncturingMatrix)):
@@ -13,8 +14,8 @@ class Rate:
         self.constellation = constellation
         self.puncturingRatio = puncturingRatio
         self.puncturingMatrix = puncturingMatrix
-        self.Nbps = ofdm.Nsc * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
-        self.Ncbps = ofdm.Nsc * Nbpsc
+        self.Nbps = ofdm.format.Nsc * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
+        self.Ncbps = ofdm.format.Nsc * Nbpsc
 
 def autocorrelate(input):
     autocorr = input[16:] * input[:-16].conj()
@@ -45,7 +46,7 @@ class WiFi_802_11:
         coded = code.encode(scrambled)
         punctured = code.puncture(coded, rate.puncturingMatrix)
         interleaved = interleaver.interleave(punctured, rate.Ncbps, rate.Nbpsc)
-        return qam.encode(interleaved, rate, ofdm.Nsc)
+        return qam.encode(interleaved, rate, ofdm.format.Nsc)
 
     def encode(self, input_octets, rate_index):
         service_bits = np.zeros(16, int)
@@ -75,7 +76,7 @@ class WiFi_802_11:
         # = var(x*n2. + n1*x. + n1*n2)
         # = E[(x n2. + n1 x. + n1 n2)(x. n2 + n1. x + n1. n2.)]
         # = 2var(n)var(x) + var(n)^2
-        additional_freq_off_estimate = -np.angle(np.sum(lts1[np.where(ofdm.lts_freq)]*lts2[np.where(ofdm.lts_freq)].conj()))/(2*np.pi*3.2e-6)
+        additional_freq_off_estimate = -np.angle(np.sum((lts1*lts2.conj())[np.where(ofdm.format.lts_freq)]))/(2*np.pi*3.2e-6)
         var_x = np.var(input)/(64./52./snr + 1)
         var_n = var_x*64./52./snr
         freq_off_estimate += additional_freq_off_estimate
@@ -87,13 +88,13 @@ class WiFi_802_11:
         lts1 = np.fft.fft(input[offset+16:offset+16+64])
         lts2 = np.fft.fft(input[offset+16+64:offset+16+128])
         Y = .5*(lts1+lts2)
-        S_X = np.abs(ofdm.lts_freq)**2
-        H = np.where(S_X, Y/np.where(S_X, ofdm.lts_freq, 1.), 0)
+        S_X = np.abs(ofdm.format.lts_freq)**2
+        H = np.where(S_X, Y/np.where(S_X, ofdm.format.lts_freq, 1.), 0)
         S_N = np.ones(64) * np.var(Y) / (1+snr)
         if 1:
             # Wiener deconvolution using estimated H
             #G = H.conj()*S_X / (np.abs(Y)**2 + S_N)
-            G = Y.conj()*ofdm.lts_freq / (.5*np.abs(lts1)**2 + .5*np.abs(lts2)**2)
+            G = Y.conj()*ofdm.format.lts_freq / (.5*np.abs(lts1)**2 + .5*np.abs(lts2)**2)
         else:
             # Directly invert estimated H
             G = np.where(H, 1./np.where(H, H, 1.), 0)
@@ -146,32 +147,31 @@ class WiFi_802_11:
         return (P, x, Q, H, R, I), u
 
     def demodulate(self, input, (G, uncertainty, var_n), visualize=False):
-        nfft = ofdm.nfft
-        ncp = ofdm.ncp
+        nfft = ofdm.format.nfft
+        ncp = ofdm.format.ncp
         kalman_state = self.kalman_init(uncertainty, var_n)
         pilotPolarity = ofdm.pilotPolarity()
         demapped_bits = []
         j = ncp - 16
         i = 0
         if visualize:
-            import pylab as pl
             pl.figure()
             pl.axis('scaled')
             pl.xlim(-1.5,1.5)
             pl.ylim(-1.5,1.5)
         length_symbols = 0
         while input.size-j > nfft and i <= length_symbols:
-            sym = np.fft.fftshift(np.fft.fft(input[j:j+nfft])*G)
-            data = sym[ofdm.dataSubcarriers]
-            pilots = sym[ofdm.pilotSubcarriers] * pilotPolarity.next() * ofdm.pilotTemplate
+            sym = np.fft.fft(input[j:j+nfft])*G
+            data = sym[ofdm.format.dataSubcarriers]
+            pilots = sym[ofdm.format.pilotSubcarriers] * pilotPolarity.next() * ofdm.format.pilotTemplate
             kalman_state, kalman_u = self.kalman_update(kalman_state, np.sum(pilots))
             data *= kalman_u
             pilots *= kalman_u
             if i==0: # signal
                 signal_bits = data.real>0
-                signal_bits = interleaver.interleave(signal_bits, ofdm.Nsc, 1, reverse=True)
+                signal_bits = interleaver.interleave(signal_bits, ofdm.format.Nsc, 1, reverse=True)
                 scrambled_plcp_estimate = code.decode(signal_bits*2-1, 18)
-                plcp_estimate = scrambler.scramble(scrambled_plcp_estimate, int(ofdm.Nsc*.5), scramblerState=0)
+                plcp_estimate = scrambler.scramble(scrambled_plcp_estimate, int(ofdm.format.Nsc*.5), scramblerState=0)
                 parity = (np.sum(plcp_estimate) & 1) == 0
                 if not parity:
                     pl.close()
@@ -192,7 +192,7 @@ class WiFi_802_11:
                 length_coded_bits = (length_bits+16+6)*2
                 length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
                 signal_bits = code.encode(scrambled_plcp_estimate)
-                dispersion = data - qam.bpsk[1][interleaver.interleave(signal_bits, ofdm.Nsc, 1)]
+                dispersion = data - qam.bpsk[1][interleaver.interleave(signal_bits, ofdm.format.Nsc, 1)]
                 dispersion = np.var(dispersion)
             else:
                 if visualize:
