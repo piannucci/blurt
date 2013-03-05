@@ -109,42 +109,42 @@ class WiFi_802_11:
         sigma_re = sigma_noise + 4*np.sin(std_theta)**2 # XXX suspect
         sigma_im = sigma_noise + 4*np.sin(std_theta)**2 # XXX suspect
         sigma_theta = std_theta**2
-        P = np.matrix(np.diag(np.array([sigma_re, sigma_im, sigma_theta]))) # PAI 2013-02-12 calculation of P[0|0] verified
-        x = np.matrix([[4.],[0.],[0.]]) # PAI 2013-02-12 calculation of x[0|0] verified
+        P = np.diag(np.array([sigma_re, sigma_im, sigma_theta])) # PAI 2013-02-12 calculation of P[0|0] verified
+        x = np.array([[4.,0.,0.]]).T # PAI 2013-02-12 calculation of x[0|0] verified
         Q = P * 0.1 # XXX PAI 2013-02-12 calculation of Q[k] suspect
-        I = np.matrix(np.eye(3))
-        H = I[:2] # PAI 2013-02-12 calculation of H[k] verified
-        R = np.matrix(np.diag(np.array([sigma_noise, sigma_noise]))) # PAI 2013-02-12 calculation of R[k] verified
-        return (P, x, Q, H, R, I)
+        R = np.diag(np.array([sigma_noise, sigma_noise])) # PAI 2013-02-12 calculation of R[k] verified
+        return (P, x, Q, R)
 
-    def kalman_update(self, (P, x, Q, H, R, I), pilot):
+    def kalman_update(self, (P, x, Q, R), pilot):
         # extended kalman filter
-        re = x[0,0]
-        im = x[1,0]
-        theta = x[2,0]
+        re,im,theta = x[:,0]
         c = np.cos(theta)
         s = np.sin(theta)
-        F = np.matrix([[c, -s, -s*re - c*im], [s,  c,  c*re - s*im], [0,  0,  1]]) # PAI 2013-02-12 calculation of F[k-1] verified
+        F = np.array([[c, -s, -s*re - c*im], [s,  c,  c*re - s*im], [0,  0,  1]]) # PAI 2013-02-12 calculation of F[k-1] verified
         x[0,0] = c*re - s*im # PAI 2013-02-12 calculation of x[k|k-1] verified
         x[1,0] = c*im + s*re
-        P = F * P * F.T + Q # PAI 2013-02-12 calculation of P[k|k-1] verified
-        z = np.matrix([[pilot.real], [pilot.imag]]) # PAI 2013-02-12 calculation of z[k] verified
-        y = z - H * x # PAI 2013-02-12 calculation of y[k] verified
-        S = H * P * H.T + R # PAI 2013-02-12 calculation of S[k] verified
+        P = F.dot(P).dot(F.T) + Q # PAI 2013-02-12 calculation of P[k|k-1] verified
+        z = np.array([[pilot.real], [pilot.imag]]) # PAI 2013-02-12 calculation of z[k] verified
+        y = z - x[:2,:] # PAI 2013-02-12 calculation of y[k] verified
+        S = P[:2,:2] + R # PAI 2013-02-12 calculation of S[k] verified
         try:
-            K = P * H.T * S.I # PAI 2013-02-12 calculation of K[k] verified
-        except LinAlgError:
+            # K = P.dot(H.T).dot(np.linalg.inv(S)) # PAI 2013-02-12 calculation of K[k] verified
+            # K = P H.T S.I
+            # S.T K.T = H P.T
+            # but S, P symmetric, so S K.T = H P
+            K = np.linalg.solve(S, P[:2,:]).T
+        except np.linalg.LinAlgError:
             # singular S means P has become negative definite
             K = 0
             # oh well, abs() its eigenvalues :-P
-            U, V = np.eigh(P)
-            P = V * np.diag(np.abs(U)) * V.H
+            U, V = np.linalg.eigh(P)
+            P = V.dot(np.diag(np.abs(U))).dot(V.T.conj())
             print >> sys.stderr, 'Singular K'
-        x += K * y # PAI 2013-02-12 calculation of x[k|k] verified
-        P = (I - K * H) * P # PAI 2013-02-12 calculation of P[k|k] verified
-        u = (x[0,0] + x[1,0]*1j).conj()
+        x += K.dot(y) # PAI 2013-02-12 calculation of x[k|k] verified
+        P -= K.dot(P[:2,:]) # PAI 2013-02-12 calculation of P[k|k] verified
+        u = x[0,0] - x[1,0]*1j
         u /= np.abs(u)
-        return (P, x, Q, H, R, I), u
+        return (P, x, Q, R), u
 
     def demodulate(self, input, (G, uncertainty, var_n), visualize=False):
         nfft = ofdm.format.nfft
