@@ -61,7 +61,7 @@ def lut_bootstrap(b, new_L):
     global L, _lut, M, s, M_L, m
     M = b.size-1
     if L is None:
-        fn = lambda a: util.shiftin(remainder5(a, b)[::-1], M)[0]
+        fn = lambda a: util.shiftin(remainder1(a, b)[::-1], M)[0]
     else:
         fn = lambda a: remainder5(a, True)
     lut = np.empty(1<<new_L, int)
