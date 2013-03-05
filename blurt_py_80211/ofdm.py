@@ -72,7 +72,7 @@ class OFDM:
     def __init__(self, format=LT):
         self.format = format
     def pilotPolarity(self):
-        return (1 - 2 * x for x in scrambler.scrambler(0x7F))
+        return (1. - 2. * float(x) for x in scrambler.scrambler(0x7F))
     def encodeSymbols(self, dataSubcarriers, pilotPolarity):
         Ns = dataSubcarriers.shape[0]
         symbols = np.zeros((Ns,self.format.nfft), np.complex)

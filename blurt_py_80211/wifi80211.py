@@ -101,7 +101,7 @@ class WiFi_802_11:
         var_x = np.var(input)/(64./52./snr + 1)/52.
         var_n = var_x/snr
         offset += 160
-        return input[offset:], (G, uncertainty, var_n)
+        return input[offset:], (G, uncertainty, var_n), offset
 
     def kalman_init(self, uncertainty, var_n):
         std_theta = 2*np.pi*uncertainty*4e-6 # convert from Hz to radians/symbol
@@ -175,14 +175,14 @@ class WiFi_802_11:
                 parity = (np.sum(plcp_estimate) & 1) == 0
                 if not parity:
                     pl.close()
-                    return None, None
+                    return None, None, 0
                 plcp_estimate = util.shiftin(plcp_estimate[:18], 18)[0]
                 try:
                     encoding_estimate = util.rev(plcp_estimate & 0xF, 4)
                     rate_estimate = [r.encoding == encoding_estimate for r in self.rates].index(True)
                 except ValueError:
                     pl.close()
-                    return None, None
+                    return None, None, 0
                 r_est = self.rates[rate_estimate]
                 Nbpsc, constellation_estimate = r_est.Nbpsc, r_est.constellation
                 min_dist = np.diff(np.unique(sorted(constellation_estimate.real)))[0]
@@ -203,13 +203,13 @@ class WiFi_802_11:
             i += 1
         if len(demapped_bits) == 0:
             pl.close()
-            return None, None
+            return None, None, 0
         punctured_bits_estimate = interleaver.interleave(np.concatenate(demapped_bits), Ncbps, Nbpsc, True)
         coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
         if coded_bits.size < length_coded_bits:
             pl.close()
-            return None, None
-        return coded_bits[:length_coded_bits], length_bits
+            return None, None, 0
+        return coded_bits[:length_coded_bits], length_bits, j
 
     def decodeFromLLR(self, llr, length_bits):
         scrambled_bits = code.decode(llr, length_bits+16)
@@ -223,14 +223,14 @@ class WiFi_802_11:
         input = input[startIndex:]
         if input.size <= 328:
             return None
-        input, training_data = self.train(input, lsnr if lsnr is not None else 10.)
-        llr, length_bits = self.demodulate(input, training_data, visualize)
+        input, training_data, used_samples_training = self.train(input, lsnr if lsnr is not None else 10.)
+        llr, length_bits, used_samples_data = self.demodulate(input, training_data, visualize)
         if llr is None:
             return None
         output_bits = self.decodeFromLLR(llr, length_bits)
         if not crc.checkFCS(output_bits[16:]):
             return None
-        return util.shiftin(output_bits[16:-32], 8)
+        return util.shiftin(output_bits[16:-32], 8), startIndex + used_samples_training + used_samples_data
 
 # produces 4 outputs before first output of autocorrelate()
 class Autocorrelator:

@@ -57,3 +57,38 @@ def downconverter(next, loopback_Fs, loopback_Fc, upsample_factor):
             input = input[6::upsample_factor]
             self.next.consume(input)
     return Downconverter(next=next)
+
+class AudioBuffer(audio.stream.ThreadedStream):
+    def init(self):
+        super(AudioBuffer, self).init()
+        self.maximum = self.kwarg('maximum', 16384)
+        self.trigger = self.kwarg('trigger', 1024)
+        self.buffer = np.empty(self.maximum, self.dtype)
+        self.read_idx = 0
+        self.write_idx = 0
+        self.length = 0
+    def thread_consume(self, input):
+        N = min(input.size, self.maximum - self.length)
+        if N:
+            M = min(N, self.maximum - self.write_idx)
+            if M:
+                self.buffer[self.write_idx:self.write_idx+M] = input[:M]
+            if N-M:
+                self.buffer[:N-M] = input[M:N]
+            self.write_idx = (self.write_idx + N) % self.maximum
+            self.length += N
+        while self.length >= self.trigger:
+            N = min(self.length, self.trigger_received())
+            self.read_idx = (self.read_idx + N) % self.maximum
+            self.length -= N
+    def peek(self, count, output=None):
+        N = min(self.length, count)
+        if output is None:
+            output = np.empty(N, self.dtype)
+        if N:
+            M = min(N, self.maximum - self.read_idx)
+            if M:
+                output[:M] = self.buffer[self.read_idx:self.read_idx+M]
+            if N-M:
+                output[M:N] = self.buffer[:N-M]
+        return output
