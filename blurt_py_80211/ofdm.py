@@ -15,8 +15,8 @@ def rangesInclusive(ranges):
 # Low Throughput (802.11a legacy) mode
 class LT:
     nfft = 64
-    ncp = 16
-    ts_reps = 2
+    ncp = 64
+    ts_reps = 6
     sts_freq = np.zeros(64, np.complex128)
     sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4],
                  (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))

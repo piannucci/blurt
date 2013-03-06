@@ -8,14 +8,14 @@ wifi = wifi80211.WiFi_802_11()
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
-Fc = 16000.
-upsample_factor = 16
+Fc = Fs/4 #16000.
+upsample_factor = 8
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
-lsnr = 15.
-rate = 1
-length = 100
+lsnr = None
+rate = 0
+length = 32
 
 def test(visualize=False):
     input_octets = np.random.random_integers(0,255,length)
