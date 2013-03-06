@@ -2,9 +2,9 @@
 import numpy as np
 import scrambler, util
 
-def trainingSequenceFromFreq(ts_freq):
+def trainingSequenceFromFreq(ts_freq, reps=2):
     ts = np.fft.ifft(ts_freq)
-    return np.tile(ts, 4)[ts_freq.size/2:][:5*ts_freq.size/2+1]
+    return np.tile(ts, reps+2)[ts_freq.size/2:][:(1+2*reps)*ts_freq.size/2+1]
 
 def rangesInclusive(ranges):
     return np.hstack([np.arange(a,b+1) for a,b in ranges])
@@ -16,16 +16,17 @@ def rangesInclusive(ranges):
 class LT:
     nfft = 64
     ncp = 16
+    ts_reps = 2
     sts_freq = np.zeros(64, np.complex128)
     sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4],
                  (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))
-    sts_time = trainingSequenceFromFreq(sts_freq)
+    sts_time = trainingSequenceFromFreq(sts_freq, ts_reps)
     lts_freq = np.array([
         0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
         1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1,
         1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
-    lts_time = trainingSequenceFromFreq(lts_freq)
+    lts_time = trainingSequenceFromFreq(lts_freq, ts_reps)
     dataSubcarriers = rangesInclusive(((-26,-22),(-20,-8),(-6,-1),(1,6),(8,20),(22,26)))
     pilotSubcarriers = np.array([-21,-7,7,21])
     pilotTemplate = np.array([1,1,1,-1])
