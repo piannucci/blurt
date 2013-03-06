@@ -17,11 +17,6 @@ class Rate:
         self.Nbps = ofdm.format.Nsc * Nbpsc * puncturingRatio[0] / puncturingRatio[1]
         self.Ncbps = ofdm.format.Nsc * Nbpsc
 
-def autocorrelate(input):
-    autocorr = input[16:] * input[:-16].conj()
-    autocorr = autocorr[:16*(autocorr.size//16)].reshape(autocorr.size//16, 16).sum(1)
-    return np.convolve(np.abs(autocorr), np.ones(9), 'same')
-
 class WiFi_802_11:
     def __init__(self):
         self.rates = [Rate(0xd, qam.bpsk , cc.puncturingSchedule[(1,2)]),
@@ -215,11 +210,19 @@ class WiFi_802_11:
         scrambled_bits = code.decode(llr, length_bits+16)
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
+    def autocorrelate(self, input):
+        Nperiod = ofdm.format.nfft / 4
+        autocorr = input[Nperiod:] * input[:-Nperiod].conj()
+        Noutputs = autocorr.size // Nperiod
+        autocorr = autocorr[:Nperiod*Noutputs].reshape(Noutputs, Nperiod).sum(1)
+        corr_sum = np.abs(np.r_[np.zeros(5), autocorr]).cumsum()
+        Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
+        return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
+
     def decode(self, input, lsnr=None, visualize=False):
-        score = autocorrelate(input)
+        score = self.autocorrelate(input)
         #score2 = -score * np.r_[0, np.diff(score, 2), 0]
-        #import pdb;pdb.set_trace()
-        startIndex = max(0, 16*np.argmax(score)-64) #72)
+        startIndex = max(0, 16*np.argmax(score)-64)
         input = input[startIndex:]
         if input.size <= 328:
             return None
