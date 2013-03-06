@@ -154,11 +154,7 @@ class WiFi_802_11:
         demapped_bits = []
         j = ncp - 16
         i = 0
-        if visualize:
-            pl.figure()
-            pl.axis('scaled')
-            pl.xlim(-1.5,1.5)
-            pl.ylim(-1.5,1.5)
+        initializedPlot = False
         length_symbols = 0
         while input.size-j > nfft and i <= length_symbols:
             sym = np.fft.fft(input[j:j+nfft])*G
@@ -174,14 +170,12 @@ class WiFi_802_11:
                 plcp_estimate = scrambler.scramble(scrambled_plcp_estimate, int(ofdm.format.Nsc*.5), scramblerState=0)
                 parity = (np.sum(plcp_estimate) & 1) == 0
                 if not parity:
-                    pl.close()
                     return None, None, 0
                 plcp_estimate = util.shiftin(plcp_estimate[:18], 18)[0]
                 try:
                     encoding_estimate = util.rev(plcp_estimate & 0xF, 4)
                     rate_estimate = [r.encoding == encoding_estimate for r in self.rates].index(True)
                 except ValueError:
-                    pl.close()
                     return None, None, 0
                 r_est = self.rates[rate_estimate]
                 Nbpsc, constellation_estimate = r_est.Nbpsc, r_est.constellation
@@ -196,19 +190,25 @@ class WiFi_802_11:
                 dispersion = np.var(dispersion)
             else:
                 if visualize:
+                    if not initializedPlot:
+                        pl.clf()
+                        pl.axis('scaled')
+                        pl.xlim(-1.5,1.5)
+                        pl.ylim(-1.5,1.5)
+                        initializedPlot = True
                     pl.scatter(data.real, data.imag, c=np.arange(data.size))
                 ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
                 demapped_bits.append(ll.flatten())
             j += nfft+ncp
             i += 1
         if len(demapped_bits) == 0:
-            pl.close()
             return None, None, 0
         punctured_bits_estimate = interleaver.interleave(np.concatenate(demapped_bits), Ncbps, Nbpsc, True)
         coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
         if coded_bits.size < length_coded_bits:
-            pl.close()
             return None, None, 0
+        if visualize:
+            pl.draw()
         return coded_bits[:length_coded_bits], length_bits, j
 
     def decodeFromLLR(self, llr, length_bits):
