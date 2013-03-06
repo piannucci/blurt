@@ -51,6 +51,15 @@ class WiFi_802_11:
         data_subcarriers = self.subcarriersFromBits(data_bits, self.rates[rate_index], 0x5d)
         return ofdm.encode(signal_subcarriers, data_subcarriers)
 
+    def autocorrelate(self, input):
+        Nperiod = ofdm.format.nfft / 4
+        autocorr = input[Nperiod:] * input[:-Nperiod].conj()
+        Noutputs = autocorr.size // Nperiod
+        autocorr = autocorr[:Nperiod*Noutputs].reshape(Noutputs, Nperiod).sum(1)
+        corr_sum = np.abs(np.r_[np.zeros(5), autocorr]).cumsum()
+        Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
+        return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
+
     def train(self, input, lsnr):
         """
         Recover OFDM timing and frequency-domain deconvolution filter.
@@ -80,8 +89,8 @@ class WiFi_802_11:
         lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
         lts[:, np.where(ofdm.format.lts_freq == 0)] = 0.
         # We have multiple receptions of the same signal, with independent noise.
-        # We model the second reception as ... XXX
-        # Now consider the random variable y.
+        # We model reception 1 as differing from reception 2 by a complex unit multiplier a.
+        # Now consider the random variable y:
         # y = (x+n1) * (a x+n2).conj()
         # E[y]
         # = E[abs(x)**2*a.conj() + x*n2.conj() + n1*x.conj() + n1*n2]
@@ -91,7 +100,10 @@ class WiFi_802_11:
         # = var(x*n2. + n1*x. + n1*n2)
         # = E[(x n2. + n1 x. + n1 n2)(x. n2 + n1. x + n1. n2.)]
         # = 2var(n)var(x) + var(n)^2
+        # std(angle(y)) ~ arctan(std(y) / abs(E[y]))
         additional_freq_off_estimate = -np.angle((lts[:-1]*lts[1:].conj()).sum())/(2*np.pi*t_lts_period)
+        input *= np.exp(-2*np.pi*1j*additional_freq_off_estimate*np.arange(input.size)/Fs)
+        freq_off_estimate += additional_freq_off_estimate
         # if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
         # var(n) = var(input) / (snr num_used_sc/num_sc + 1)
         # var(x_i) = (var(input) - var(n)) / num_used_sc
@@ -99,9 +111,7 @@ class WiFi_802_11:
         var_n = var_input / (float(snr * Nsc_used) / Nsc + 1)
         var_x = var_input - var_n
         var_y = 2*var_n*var_x + var_n**2
-        freq_off_estimate += additional_freq_off_estimate
-        input *= np.exp(-2*np.pi*1j*additional_freq_off_estimate*np.arange(input.size)/Fs)
-        uncertainty = np.arctan((var_y**.5) / var_x) / (2*np.pi*t_lts_period) / nfft**.5
+        uncertainty = np.arctan(var_y**.5 / var_x) / (2*np.pi*t_lts_period) / nfft**.5
         if 0:
             err = abs(freq_off_estimate - freq_offset)
             # first print error, then print 1.5 sigma for the "best we can really expect"
@@ -109,20 +119,11 @@ class WiFi_802_11:
         lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
         Y = lts.mean(0)
         S_Y = (np.abs(lts)**2).mean(0)
-        S_X = np.abs(ofdm.format.lts_freq)**2
-        H = np.where(S_X, Y/np.where(S_X, ofdm.format.lts_freq, 1.), 0)
-        S_N = np.ones(64) * np.var(Y) / (1+snr)
-        if 1:
-            # Wiener deconvolution using estimated H
-            #G = H.conj()*S_X / (np.abs(Y)**2 + S_N)
-            G = Y.conj()*ofdm.format.lts_freq / S_Y
-        else:
-            # Directly invert estimated H
-            G = np.where(H, 1./np.where(H, H, 1.), 0)
-        var_x = np.var(input)/(64./52./snr + 1)/52.
-        var_n = var_x/snr
-        offset += 160-16
-        return input[offset:], (G, uncertainty, var_n), offset
+        # Wiener deconvolution
+        G = Y.conj()*ofdm.format.lts_freq / S_Y
+        var_ni = var_x/Nsc_used/snr
+        offset += int((N_lts_reps+.5) * nfft) - 16
+        return input[offset:], (G, uncertainty, var_ni), offset
 
     def kalman_init(self, uncertainty, var_n):
         std_theta = 2*np.pi*uncertainty*4e-6 # convert from Hz to radians/symbol
@@ -235,15 +236,6 @@ class WiFi_802_11:
     def decodeFromLLR(self, llr, length_bits):
         scrambled_bits = code.decode(llr, length_bits+16)
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
-
-    def autocorrelate(self, input):
-        Nperiod = ofdm.format.nfft / 4
-        autocorr = input[Nperiod:] * input[:-Nperiod].conj()
-        Noutputs = autocorr.size // Nperiod
-        autocorr = autocorr[:Nperiod*Noutputs].reshape(Noutputs, Nperiod).sum(1)
-        corr_sum = np.abs(np.r_[np.zeros(5), autocorr]).cumsum()
-        Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
-        return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
 
     def decode(self, input, lsnr=None, visualize=False):
         score = self.autocorrelate(input)
