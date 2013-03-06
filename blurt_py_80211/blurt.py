@@ -50,6 +50,15 @@ def testInStream():
     downconverter = audioLoopback.downconverter(autocorrelator, Fs, Fc, upsample_factor)
     audio.record(downconverter, Fs)
 
+def processAndPresent(input):
+    signal = input
+    def f():
+        result = wifi.decode(signal, lsnr, True)
+        if result is not None:
+            input, used_samples = result
+            print repr(''.join(map(chr, input)))
+    return f
+
 class AudioConsumer(audioLoopback.AudioBuffer):
     def init(self):
         self.kwargs['maximum'] = int(Fs*3)
@@ -62,10 +71,7 @@ class AudioConsumer(audioLoopback.AudioBuffer):
         used_samples = 0
         try:
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
-            result = wifi.decode(input, lsnr)
-            if result is not None:
-                input, used_samples = result
-                print repr(''.join(map(chr, input)))
+            self.onMainThread(processAndPresent(input))
         except Exception, e:
             print repr(e)
         if used_samples:
