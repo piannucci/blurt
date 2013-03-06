@@ -31,6 +31,8 @@ class LT:
     pilotSubcarriers = np.array([-21,-7,7,21])
     pilotTemplate = np.array([1,1,1,-1])
     Nsc = dataSubcarriers.size
+    Nsc_used = dataSubcarriers.size + pilotSubcarriers.size
+    Fs = 20e6
 
 # specialized for long acoustic echos
 class LT_audio(LT):
@@ -57,6 +59,7 @@ class HT40:
     pilotSubcarriers = np.array([-53,-25,-11,11,25,53])
     pilotTemplate = np.array([1,1,1,-1,0,0,0,0])
     Nsc = dataSubcarriers.size
+    Fs = 40e6
 
 def stitch(*x):
     output = np.zeros(sum(len(xx)-1 for xx in x)+1,np.complex)

@@ -52,16 +52,36 @@ class WiFi_802_11:
         return ofdm.encode(signal_subcarriers, data_subcarriers)
 
     def train(self, input, lsnr):
+        """
+        Recover OFDM timing and frequency-domain deconvolution filter.
+        """
         snr = 10.**(.1*lsnr)
-        freq_off_estimate = -np.angle(np.sum(input[:144] * input[16:160].conj()))/(2*np.pi*.8e-6)
-        input *= np.exp(-2*np.pi*1j*freq_off_estimate*np.arange(input.size)/20e6)
+        Fs = ofdm.format.Fs
+        nfft = ofdm.format.nfft
+        Nsc_used, Nsc = ofdm.format.Nsc_used, ofdm.format.Nsc
+        ts_reps = ofdm.format.ts_reps
+        # First, obtain a coarse frequency offset estimate from the short training sequences
+        N_sts_period = nfft / 4
+        t_sts_period = N_sts_period/Fs
+        N_sts_reps = int(((ts_reps+.5) * nfft) / N_sts_period)
+        sts = input[:N_sts_period*N_sts_reps]
+        freq_off_estimate = -np.angle(np.sum(sts[:-N_sts_period] * sts[N_sts_period:].conj()))/(2*np.pi*t_sts_period)
+        input *= np.exp(-2*np.pi*1j*freq_off_estimate*np.arange(input.size)/Fs)
         if 0:
             err = abs(freq_off_estimate - freq_offset)
-            print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (20e6/64), err * 4e-6)
-        offset = 8
-        offset += 160
-        lts1 = np.fft.fft(input[offset+16:offset+16+64])
-        lts2 = np.fft.fft(input[offset+16+64:offset+16+128])
+            print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (Fs/64), err * 4e-6)
+        offset = 8 + 16
+        offset += N_sts_reps*N_sts_period
+        # Next, obtain a fine frequency offset estimate from the long training sequences, and estimate
+        # how uncertain this estimate is.
+        N_lts_period = nfft
+        t_lts_period = N_lts_period/Fs
+        N_lts_reps = ts_reps
+        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
+        lts[:, np.where(ofdm.format.lts_freq == 0)] = 0.
+        # We have multiple receptions of the same signal, with independent noise.
+        # We model the second reception as ... XXX
+        # Now consider the random variable y.
         # y = (x+n1) * (a x+n2).conj()
         # E[y]
         # = E[abs(x)**2*a.conj() + x*n2.conj() + n1*x.conj() + n1*n2]
@@ -71,31 +91,37 @@ class WiFi_802_11:
         # = var(x*n2. + n1*x. + n1*n2)
         # = E[(x n2. + n1 x. + n1 n2)(x. n2 + n1. x + n1. n2.)]
         # = 2var(n)var(x) + var(n)^2
-        additional_freq_off_estimate = -np.angle(np.sum((lts1*lts2.conj())[np.where(ofdm.format.lts_freq)]))/(2*np.pi*3.2e-6)
-        var_x = np.var(input)/(64./52./snr + 1)
-        var_n = var_x*64./52./snr
+        additional_freq_off_estimate = -np.angle((lts[:-1]*lts[1:].conj()).sum())/(2*np.pi*t_lts_period)
+        # if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
+        # var(n) = var(input) / (snr num_used_sc/num_sc + 1)
+        # var(x_i) = (var(input) - var(n)) / num_used_sc
+        var_input = input.var()
+        var_n = var_input / (float(snr * Nsc_used) / Nsc + 1)
+        var_x = var_input - var_n
+        var_y = 2*var_n*var_x + var_n**2
         freq_off_estimate += additional_freq_off_estimate
-        input *= np.exp(-2*np.pi*1j*additional_freq_off_estimate*np.arange(input.size)/20e6)
-        uncertainty = np.arctan(((2*var_n*var_x+var_n**2)**.5) / var_x) / (2*np.pi*3.2e-6) / 64.**.5
-        #err = abs(freq_off_estimate - freq_offset)
-        # first print error, then print 1.5 sigma for the "best we can really expect"
-        #print 'Fine frequency estimation error: %.0f +/- %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, 1.5*uncertainty, err / (20e6/64), err * 4e-6)
-        lts1 = np.fft.fft(input[offset+16:offset+16+64])
-        lts2 = np.fft.fft(input[offset+16+64:offset+16+128])
-        Y = .5*(lts1+lts2)
+        input *= np.exp(-2*np.pi*1j*additional_freq_off_estimate*np.arange(input.size)/Fs)
+        uncertainty = np.arctan((var_y**.5) / var_x) / (2*np.pi*t_lts_period) / nfft**.5
+        if 0:
+            err = abs(freq_off_estimate - freq_offset)
+            # first print error, then print 1.5 sigma for the "best we can really expect"
+            print 'Fine frequency estimation error: %.0f +/- %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, 1.5*uncertainty, err / (Fs/64), err * 4e-6)
+        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
+        Y = lts.mean(0)
+        S_Y = (np.abs(lts)**2).mean(0)
         S_X = np.abs(ofdm.format.lts_freq)**2
         H = np.where(S_X, Y/np.where(S_X, ofdm.format.lts_freq, 1.), 0)
         S_N = np.ones(64) * np.var(Y) / (1+snr)
         if 1:
             # Wiener deconvolution using estimated H
             #G = H.conj()*S_X / (np.abs(Y)**2 + S_N)
-            G = Y.conj()*ofdm.format.lts_freq / (.5*np.abs(lts1)**2 + .5*np.abs(lts2)**2)
+            G = Y.conj()*ofdm.format.lts_freq / S_Y
         else:
             # Directly invert estimated H
             G = np.where(H, 1./np.where(H, H, 1.), 0)
         var_x = np.var(input)/(64./52./snr + 1)/52.
         var_n = var_x/snr
-        offset += 160
+        offset += 160-16
         return input[offset:], (G, uncertainty, var_n), offset
 
     def kalman_init(self, uncertainty, var_n):
