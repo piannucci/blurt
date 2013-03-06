@@ -33,6 +33,7 @@ class LT:
     Nsc = dataSubcarriers.size
     Nsc_used = dataSubcarriers.size + pilotSubcarriers.size
     Fs = 20e6
+    preambleLength = sts_time.size + lts_time.size - 2
 
 # specialized for long acoustic echos
 class LT_audio(LT):

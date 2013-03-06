@@ -74,6 +74,8 @@ class WiFi_802_11:
         t_sts_period = N_sts_period/Fs
         N_sts_reps = int(((ts_reps+.5) * nfft) / N_sts_period)
         sts = input[:N_sts_period*N_sts_reps]
+        if sts.size != N_sts_period*N_sts_reps:
+            return None
         freq_off_estimate = -np.angle(np.sum(sts[:-N_sts_period] * sts[N_sts_period:].conj()))/(2*np.pi*t_sts_period)
         input *= np.exp(-2*np.pi*1j*freq_off_estimate*np.arange(input.size)/Fs)
         if 0:
@@ -86,7 +88,10 @@ class WiFi_802_11:
         N_lts_period = nfft
         t_lts_period = N_lts_period/Fs
         N_lts_reps = ts_reps
-        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
+        lts = input[offset:offset+N_lts_period*N_lts_reps]
+        if lts.size != N_lts_period*N_lts_reps:
+            return None
+        lts = np.fft.fft(lts.reshape(N_lts_reps, N_lts_period), axis=1)
         lts[:, np.where(ofdm.format.lts_freq == 0)] = 0.
         # We have multiple receptions of the same signal, with independent noise.
         # We model reception 1 as differing from reception 2 by a complex unit multiplier a.
@@ -242,9 +247,12 @@ class WiFi_802_11:
         #score2 = -score * np.r_[0, np.diff(score, 2), 0]
         startIndex = max(0, 16*np.argmax(score)-64)
         input = input[startIndex:]
-        if input.size <= 328:
+        if input.size <= ofdm.format.preambleLength:
             return None
-        input, training_data, used_samples_training = self.train(input, lsnr if lsnr is not None else 10.)
+        training_results = self.train(input, lsnr if lsnr is not None else 10.)
+        if training_results is None:
+            return None
+        input, training_data, used_samples_training = training_results
         llr, length_bits, used_samples_data = self.demodulate(input, training_data, visualize)
         if llr is None:
             return None
