@@ -3,6 +3,7 @@ import numpy as np
 import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
 import audio, audio.stream
+import pylab as pl
 
 wifi = wifi80211.WiFi_802_11()
 
@@ -27,7 +28,7 @@ def test(visualize=False):
         input = audioLoopback.audioLoopback(output, Fs, Fc, upsample_factor, mask_noise)
         bitrate = input_octets.size*8 * Fs / float(output.size) / upsample_factor
     try:
-        return wifi.decode(input, lsnr, visualize) is not None, bitrate
+        return wifi.decode(input, visualize) is not None, bitrate
     except Exception, e:
         print e
         return False, bitrate
@@ -40,8 +41,8 @@ def testOut(message):
 
 def testIn(duration=5., visualize=False):
     input = audioLoopback.audioIn(Fs, Fc, upsample_factor, duration)
-    result, used_samples = wifi.decode(input, lsnr, visualize)
-    return ''.join(map(chr, result)) if result is not None else None
+    payload, used_samples, lsnr_estimate, _ = wifi.decode(input, visualize)
+    return ''.join(map(chr, payload)) if payload is not None else None
 
 def testInStream():
     vumeter = audio.stream.VUMeter(Fs=float(Fs)/upsample_factor/16.)
@@ -50,13 +51,13 @@ def testInStream():
     downconverter = audioLoopback.downconverter(autocorrelator, Fs, Fc, upsample_factor)
     audio.record(downconverter, Fs)
 
-def processAndPresent(input):
-    signal = input
+def presentResult(input):
+    result = input
     def f():
-        result = wifi.decode(signal, lsnr, True)
-        if result is not None:
-            input, used_samples = result
-            print repr(''.join(map(chr, input)))
+        payload, _, lsnr_estimate, drawFunc = result
+        print repr(''.join(map(chr, payload))) + ' @ %.1f dB' % lsnr_estimate
+        drawFunc()
+        pl.draw()
     return f
 
 class AudioConsumer(audioLoopback.AudioBuffer):
@@ -71,7 +72,10 @@ class AudioConsumer(audioLoopback.AudioBuffer):
         used_samples = 0
         try:
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
-            self.onMainThread(processAndPresent(input))
+            result = wifi.decode(input, True, True)
+            if result is not None:
+                _, used_samples, _, _ = result
+                self.onMainThread(presentResult(result))
         except Exception, e:
             print repr(e)
         if used_samples:

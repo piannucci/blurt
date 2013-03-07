@@ -3,6 +3,7 @@ import numpy as np
 import util, cc, ofdm, scrambler, interleaver, qam, crc
 import audio.stream
 import pylab as pl
+import sys
 
 code = cc.ConvolutionalCode()
 ofdm = ofdm.OFDM(ofdm.LT)
@@ -60,11 +61,10 @@ class WiFi_802_11:
         Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
         return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
 
-    def train(self, input, lsnr):
+    def train(self, input):
         """
         Recover OFDM timing and frequency-domain deconvolution filter.
         """
-        snr = 10.**(.1*lsnr)
         Fs = ofdm.format.Fs
         nfft = ofdm.format.nfft
         Nsc_used, Nsc = ofdm.format.Nsc_used, ofdm.format.Nsc
@@ -113,6 +113,14 @@ class WiFi_802_11:
         # var(n) = var(input) / (snr num_used_sc/num_sc + 1)
         # var(x_i) = (var(input) - var(n)) / num_used_sc
         var_input = input.var()
+        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
+        Y = lts.mean(0)
+        S_Y = (np.abs(lts)**2).mean(0)
+        # Wiener deconvolution
+        G = Y.conj()*ofdm.format.lts_freq / S_Y
+        # noise estimation via residuals
+        snr = 1./(G*lts - ofdm.format.lts_freq).var()
+        lsnr_estimate = 10*np.log10(snr)
         var_n = var_input / (float(snr * Nsc_used) / Nsc + 1)
         var_x = var_input - var_n
         var_y = 2*var_n*var_x + var_n**2
@@ -121,14 +129,9 @@ class WiFi_802_11:
             err = abs(freq_off_estimate - freq_offset)
             # first print error, then print 1.5 sigma for the "best we can really expect"
             print 'Fine frequency estimation error: %.0f +/- %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, 1.5*uncertainty, err / (Fs/64), err * 4e-6)
-        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
-        Y = lts.mean(0)
-        S_Y = (np.abs(lts)**2).mean(0)
-        # Wiener deconvolution
-        G = Y.conj()*ofdm.format.lts_freq / S_Y
         var_ni = var_x/Nsc_used/snr
         offset += int((N_lts_reps+.5) * nfft) - 16
-        return input[offset:], (G, uncertainty, var_ni), offset
+        return (G, uncertainty, var_ni), offset, lsnr_estimate
 
     def kalman_init(self, uncertainty, var_n):
         std_theta = 2*np.pi*uncertainty*4e-6 # convert from Hz to radians/symbol
@@ -173,7 +176,7 @@ class WiFi_802_11:
         u /= np.abs(u)
         return (P, x, Q, R), u
 
-    def demodulate(self, input, (G, uncertainty, var_n), visualize=False):
+    def demodulate(self, input, (G, uncertainty, var_n), drawingCalls=None):
         nfft = ofdm.format.nfft
         ncp = ofdm.format.ncp
         kalman_state = self.kalman_init(uncertainty, var_n)
@@ -216,14 +219,14 @@ class WiFi_802_11:
                 dispersion = data - qam.bpsk[1][interleaver.interleave(signal_bits, ofdm.format.Nsc, 1)]
                 dispersion = np.var(dispersion)
             else:
-                if visualize:
+                if drawingCalls is not None:
                     if not initializedPlot:
-                        pl.clf()
-                        pl.axis('scaled')
-                        pl.xlim(-1.5,1.5)
-                        pl.ylim(-1.5,1.5)
+                        drawingCalls.append(lambda: pl.clf())
+                        drawingCalls.append(lambda: pl.axis('scaled'))
+                        drawingCalls.append(lambda: pl.xlim(-1.5,1.5))
+                        drawingCalls.append(lambda: pl.ylim(-1.5,1.5))
                         initializedPlot = True
-                    pl.scatter(data.real, data.imag, c=np.arange(data.size))
+                    drawingCalls.append((lambda d: lambda: pl.scatter(d.real, d.imag, c=np.arange(data.size)))(data))
                 ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
                 demapped_bits.append(ll.flatten())
             j += nfft+ncp
@@ -234,32 +237,38 @@ class WiFi_802_11:
         coded_bits = code.depuncture(punctured_bits_estimate, r_est.puncturingMatrix)
         if coded_bits.size < length_coded_bits:
             return None, None, 0
-        if visualize:
-            pl.draw()
         return coded_bits[:length_coded_bits], length_bits, j
 
     def decodeFromLLR(self, llr, length_bits):
         scrambled_bits = code.decode(llr, length_bits+16)
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
-    def decode(self, input, lsnr=None, visualize=False):
+    def decode(self, input, visualize=False, deferVisualization=False):
         score = self.autocorrelate(input)
-        #score2 = -score * np.r_[0, np.diff(score, 2), 0]
         startIndex = max(0, 16*np.argmax(score)-64)
         input = input[startIndex:]
         if input.size <= ofdm.format.preambleLength:
             return None
-        training_results = self.train(input, lsnr if lsnr is not None else 10.)
+        training_results = self.train(input)
         if training_results is None:
             return None
-        input, training_data, used_samples_training = training_results
-        llr, length_bits, used_samples_data = self.demodulate(input, training_data, visualize)
+        training_data, used_samples_training, lsnr = training_results
+        drawingCalls = None if not visualize else []
+        llr, length_bits, used_samples_data = self.demodulate(input[used_samples_training:], training_data, drawingCalls)
+        drawFunc = None
+        if visualize:
+            def drawFunc():
+                for fn in drawingCalls:
+                    fn()
+            if not deferVisualization:
+                drawFunc()
+                drawFunc = None
         if llr is None:
             return None
         output_bits = self.decodeFromLLR(llr, length_bits)
         if not crc.checkFCS(output_bits[16:]):
             return None
-        return util.shiftin(output_bits[16:-32], 8), startIndex + used_samples_training + used_samples_data
+        return util.shiftin(output_bits[16:-32], 8), startIndex + used_samples_training + used_samples_data, lsnr, drawFunc
 
 # produces 4 outputs before first output of autocorrelate()
 class Autocorrelator:
