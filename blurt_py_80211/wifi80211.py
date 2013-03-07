@@ -61,6 +61,16 @@ class WiFi_802_11:
         Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
         return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
 
+    def synchronize(self, input, multi=False):
+        score = self.autocorrelate(input)
+        if multi:
+            score2 = -score*np.r_[0,np.diff(score,2),0]
+            startIndex = 16*np.where(score2>score2.max()*.5)[0] - 64
+            startIndex[np.where(startIndex<0)] = 0
+        else:
+            startIndex = max(0, 16*np.argmax(score)-64) + startOff
+        return startIndex
+
     def train(self, input):
         """
         Recover OFDM timing and frequency-domain deconvolution filter.
@@ -244,17 +254,30 @@ class WiFi_802_11:
         return scrambler.scramble(scrambled_bits, None, scramblerState=0x5d)[:length_bits+16]
 
     def decode(self, input, visualize=False, deferVisualization=False):
-        score = self.autocorrelate(input)
-        startIndex = max(0, 16*np.argmax(score)-64)
-        input = input[startIndex:]
-        if input.size <= ofdm.format.preambleLength:
-            return None
-        training_results = self.train(input)
-        if training_results is None:
-            return None
-        training_data, used_samples_training, lsnr = training_results
+        results = []
         drawingCalls = None if not visualize else []
-        llr, length_bits, used_samples_data = self.demodulate(input[used_samples_training:], training_data, drawingCalls)
+        endIndex = 0
+        for startIndex in self.synchronize(input, True):
+            if startIndex < endIndex:
+                # we already successfully decoded this packet
+                continue
+            input = input[startIndex:]
+            if input.size <= ofdm.format.preambleLength:
+                continue
+            training_results = self.train(input)
+            if training_results is None:
+                continue
+            training_data, used_samples_training, lsnr = training_results
+            llr, length_bits, used_samples_data = self.demodulate(input[used_samples_training:], training_data, drawingCalls)
+            if llr is None:
+                continue
+            output_bits = self.decodeFromLLR(llr, length_bits)
+            if not crc.checkFCS(output_bits[16:]):
+                continue
+            payload = util.shiftin(output_bits[16:-32], 8)
+            endIndex = startIndex + used_samples_training + used_samples_data
+            result = payload, startIndex, endIndex, lsnr
+            results.append(result)
         drawFunc = None
         if visualize:
             def drawFunc():
@@ -263,31 +286,6 @@ class WiFi_802_11:
             if not deferVisualization:
                 drawFunc()
                 drawFunc = None
-        if llr is None:
-            return None
-        output_bits = self.decodeFromLLR(llr, length_bits)
-        if not crc.checkFCS(output_bits[16:]):
-            return None
-        return util.shiftin(output_bits[16:-32], 8), startIndex + used_samples_training + used_samples_data, lsnr, drawFunc
+        return results, drawFunc
 
-# produces 4 outputs before first output of autocorrelate()
-class Autocorrelator:
-    def __init__(self, next=None):
-        self.input_fragment = np.zeros(16, np.complex128)
-        self.corr_fragment = np.zeros(8, np.float64)
-        self.next = next if next is not None else []
-    def consume(self, input):
-        # we only process input in 16-sample chunks
-        stream = np.r_[self.input_fragment, input]
-        n = 16*((stream.size-16)//16)
-        self.input_fragment = stream[n:]
-        if n:
-            input = stream[:n+16]
-            corr = stream[16:n+16] * stream[:n].conj()
-            corr = corr.reshape(n//16, 16).sum(1)
-            corr = np.r_[self.corr_fragment, corr]
-            self.corr_fragment = corr[-9:]
-            corr_sum = corr.cumsum()
-            output = np.abs(corr_sum[9:] - corr_sum[:-9])
-            self.next.consume(output)
-
+startOff = 0
