@@ -9,14 +9,14 @@ wifi = wifi80211.WiFi_802_11()
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
-Fc = 16000. #Fs/4
-upsample_factor = 8
+Fc = 19000. #Fs/4
+upsample_factor = 16
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
 lsnr = None
 rate = 0
-length = 32
+length = 16
 
 def test(visualize=False):
     input_octets = np.random.random_integers(0,255,length)
@@ -68,7 +68,7 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
         #print '%.0f%%' % ((float(self.length)/self.maximum) * 100)
         #print '\r\x1b[K' + ('.' * int(30 + 10*np.log10(np.var(input)))),
         endIndex = 0
-        visualize = False
+        visualize = True
         try:
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
             results, drawFunc = wifi.decode(input, visualize, visualize)
