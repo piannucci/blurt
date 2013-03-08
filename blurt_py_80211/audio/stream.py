@@ -10,6 +10,7 @@ class StreamArray(np.ndarray):
         obj.args = args
         obj.kwargs = kwargs
         obj.dtype = obj.kwarg('dtype', np.float32)
+        obj.channels = kwargs['channels'] if 'channels' in kwargs else 1
         obj.init()
         return obj
     def kwarg(self, name, default=None):
@@ -33,7 +34,7 @@ class StreamArray(np.ndarray):
         return self.consume(sequence)
     @property
     def shape(self):
-        return (len(self),)
+        return (len(self), self.channels)
 
 class ThreadedStream(StreamArray):
     def init(self):
@@ -62,28 +63,32 @@ class ThreadedStream(StreamArray):
         except Queue.Full:
             print 'Overrun'
     def produce(self, count):
-        result = np.empty(count, self.dtype)
+        result = np.empty((count, self.channels), self.dtype)
         i = 0
         if self.out_fragment is not None:
-            n = min(self.out_fragment.size, count)
+            n = min(self.out_fragment.shape[0], count)
             result[:n] = self.out_fragment[:n]
             i += n
-            if n < self.out_fragment.size:
+            if n < self.out_fragment.shape[0]:
                 self.out_fragment = self.out_fragment[n:]
             else:
                 self.out_fragment = None
         while i < count:
             try:
                 fragment = self.out_queue.get_nowait()
+                if len(fragment.shape) == 1:
+                    fragment = fragment[:,np.newaxis]
+                if fragment.shape[1] != self.channels and fragment.shape[1] != 1:
+                    raise Exception('ThreadedStream produced a stream with the wrong number of channels.')
             except Queue.Empty:
                 result[i:] = 0
                 print 'Underrun'
                 break
             else:
-                n = min(count-i, fragment.size)
+                n = min(count-i, fragment.shape[0])
                 result[i:i+n] = fragment[:n]
                 i += n
-                if fragment.size > n:
+                if fragment.shape[0] > n:
                     self.out_fragment = fragment[n:]
         return result
     def onMainThread(self, fn):

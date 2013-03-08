@@ -44,7 +44,7 @@ def downconverter(next, loopback_Fs, loopback_Fc, upsample_factor):
     class Downconverter(audio.stream.ThreadedStream):
         def init(self):
             super(Downconverter, self).init()
-            self.next = self.kwargs['next']
+            self.next = self.kwarg('next', None)
             self.iir_state = np.zeros(6)
             self.iir = iir.lowpass(.8/upsample_factor)
             self.i = 0

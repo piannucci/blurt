@@ -87,11 +87,14 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
             return self.trigger/2
 
 class ContinuousTransmitter(audio.stream.ThreadedStream):
+    def init(self):
+        self.channels = 2
+        super(ContinuousTransmitter, self).init()
     def thread_produce(self):
         input_octets = ord('A') + np.random.random_integers(0,25,length)
         output = wifi.encode(input_octets, rate)
         output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None)
-        return output[:,0]
+        return output
 
 def startListening():
     audio.record(ContinuousReceiver(), Fs)
