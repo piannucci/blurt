@@ -2,7 +2,7 @@
 import numpy as np
 import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
-import audio, audio.stream
+import audio
 import pylab as pl
 
 wifi = wifi80211.WiFi_802_11()
@@ -44,15 +44,16 @@ def presentResults(results, drawFunc):
     _results = results
     _drawFunc = drawFunc
     def f():
-        for result in _results:
-            payload, _, _, lsnr_estimate = result
-            print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
-        needRedraw = False
+        if len(_results):
+            for result in _results:
+                payload, _, _, lsnr_estimate = result
+                print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
+        else:
+            decoderDiagnostics()
+            pl.draw()
         if drawFunc is not None:
             pl.figure(1)
             drawFunc()
-            needRedraw = True
-        if needRedraw:
             pl.draw()
     return f
 
@@ -60,9 +61,11 @@ badPacketWaveforms = []
 
 class ContinuousReceiver(audioLoopback.AudioBuffer):
     def init(self):
-        self.kwargs['maximum'] = int(Fs*3)
-        self.kwargs['trigger'] = int(Fs)
+        self.kwargs['maximum'] = int(Fs*4/upsample_factor)
+        self.kwargs['trigger'] = int(Fs*2/upsample_factor)
+        self.dtype = np.complex64
         super(ContinuousReceiver, self).init()
+        self.inputProcessor = audioLoopback.InputProcessor(Fs, Fc, upsample_factor)
     def trigger_received(self):
         input = self.peek(self.maximum)
         #print '%.0f%%' % ((float(self.length)/self.maximum) * 100)
@@ -70,19 +73,17 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
         endIndex = 0
         visualize = True
         try:
-            input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
             results, drawFunc = wifi.decode(input, visualize, visualize)
             for result in results:
                 _, startIndex, endIndex, _ = result
-            if len(results):
-                self.onMainThread(presentResults(results, drawFunc))
-            else:
-                print 'Saving waveform'
+            if not len(results):
                 badPacketWaveforms.append(input)
+                del badPacketWaveforms[:-10]
+            self.onMainThread(presentResults(results, drawFunc))
         except Exception, e:
             print repr(e)
         if endIndex:
-            return endIndex*upsample_factor
+            return endIndex
         else:
             return self.trigger/2
 
@@ -112,12 +113,11 @@ def decoderDiagnostics(waveform=None):
     pl.figure(2)
     pl.clf()
     pl.subplot(211)
-    pl.specgram(waveform, NFFT=64, noverlap=64-1, Fc=Fc, Fs=Fs_eff, interpolation='none', window=lambda x:x)
+    pl.specgram(waveform, NFFT=64, noverlap=64-1, Fc=Fc, Fs=Fs_eff, interpolation='nearest', window=lambda x:x)
     pl.xlim(0, waveform.size/Fs_eff)
     yl = pl.ylim(); pl.vlines(synch, *yl); pl.ylim(*yl)
     pl.subplot(212)
     pl.plot(ac_t, ac)
-    pl.plot(ac_t, -ac*np.r_[0,np.diff(ac,2),0]*100)
     yl = pl.ylim(); pl.vlines(synch, *yl); pl.ylim(*yl)
     pl.xlim(0, waveform.size/Fs_eff)
 
