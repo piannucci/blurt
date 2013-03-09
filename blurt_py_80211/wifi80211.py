@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 import numpy as np
 import util, cc, ofdm, scrambler, interleaver, qam, crc
-import audio.stream
+import audio
 import pylab as pl
+import scipy.linalg
 import sys
 
 code = cc.ConvolutionalCode()
@@ -257,18 +258,21 @@ class WiFi_802_11:
         results = []
         drawingCalls = None if not visualize else []
         endIndex = 0
+        working_buffer = np.empty_like(input)
         for startIndex in self.synchronize(input, True):
             if startIndex < endIndex:
                 # we already successfully decoded this packet
                 continue
-            input = input[startIndex:]
-            if input.size <= ofdm.format.preambleLength:
+            synchronized_input = input[startIndex:]
+            working_buffer[:synchronized_input.size] = synchronized_input
+            working_buffer = working_buffer[:synchronized_input.size]
+            if working_buffer.size <= ofdm.format.preambleLength:
                 continue
-            training_results = self.train(input)
+            training_results = self.train(working_buffer)
             if training_results is None:
                 continue
             training_data, used_samples_training, lsnr = training_results
-            llr, length_bits, used_samples_data = self.demodulate(input[used_samples_training:], training_data, drawingCalls)
+            llr, length_bits, used_samples_data = self.demodulate(working_buffer[used_samples_training:], training_data, drawingCalls)
             if llr is None:
                 continue
             output_bits = self.decodeFromLLR(llr, length_bits)
