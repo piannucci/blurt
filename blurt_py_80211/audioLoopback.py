@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
-import audio, audio.stream
+import audio
 import util, iir
 
 delay = .005
@@ -26,6 +26,23 @@ def processInput(input, loopback_Fs, loopback_Fc, upsample_factor):
     input = input * np.exp(-1j * 2 * np.pi * np.arange(input.size) * loopback_Fc / loopback_Fs)
     input = iir.lowpass(.8/upsample_factor)(np.r_[np.zeros(6), input])[6::upsample_factor]
     return input
+
+class InputProcessor:
+    def __init__(self, Fs, Fc, upsample_factor):
+        self.upsample_factor = upsample_factor
+        self.order = 6
+        self.y_hist = np.zeros(self.order)
+        self.lowpass = iir.lowpass(.8/upsample_factor)
+        self.i = 0
+        self.s = -1j * 2 * np.pi * Fc / Fs
+    def process(self, input):
+        # convert to complex baseband signal
+        input = input * np.exp(self.s * (np.arange(input.size) + self.i))
+        self.i += input.size
+        # filter
+        y = self.lowpass(np.r_[self.y_hist, input])
+        self.y_hist = y[-self.order:]
+        return y[self.order::self.upsample_factor]
 
 def audioLoopback(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
     output = processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
@@ -67,10 +84,15 @@ class AudioBuffer(audio.stream.ThreadedStream):
         self.read_idx = 0
         self.write_idx = 0
         self.length = 0
+        self.inputProcessor = None
     def thread_consume(self, input):
+        if self.inputProcessor is not None:
+            input = self.inputProcessor.process(input)
         N = min(input.size, self.maximum - self.length)
         if N:
             M = min(N, self.maximum - self.write_idx)
+            if M < N:
+                print 'AudioBuffer overrun'
             if M:
                 self.buffer[self.write_idx:self.write_idx+M] = input[:M]
             if N-M:
