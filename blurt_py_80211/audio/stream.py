@@ -61,7 +61,9 @@ class ThreadedStream(StreamArray):
         try:
             self.in_queue.put_nowait(sequence)
         except Queue.Full:
-            print 'Overrun'
+            print 'ThreadedStream overrun'
+        except Exception, e:
+            print 'ThreadedStream exception %s' % repr(e)
     def produce(self, count):
         result = np.empty((count, self.channels), self.dtype)
         i = 0
@@ -82,8 +84,10 @@ class ThreadedStream(StreamArray):
                     raise Exception('ThreadedStream produced a stream with the wrong number of channels.')
             except Queue.Empty:
                 result[i:] = 0
-                print 'Underrun'
+                print 'ThreadedStream underrun'
                 break
+            except Exception, e:
+                print 'ThreadedStream exception %s' % repr(e)
             else:
                 n = min(count-i, fragment.shape[0])
                 result[i:i+n] = fragment[:n]

@@ -211,10 +211,15 @@ cdef OSStatus playbackCallback(
 
     try:
         cb.playbackStarted = True
+        zeroFill = False
         for i from 0 <= i < outOutputData.mNumberBuffers:
-            if cb.playbackCallback(arrayFromBuffer(outOutputData.mBuffers[i], cb.playbackASBD)):
-                stopPlayback(cb)
-                break
+            buffer = arrayFromBuffer(outOutputData.mBuffers[i], cb.playbackASBD)
+            if not zeroFill:
+                if cb.playbackCallback(buffer):
+                    stopPlayback(cb)
+                    zeroFill = True
+            else:
+                buffer[:] = 0
     except Exception, e:
         stopPlayback(cb)
         cb.playbackException = e

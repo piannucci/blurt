@@ -26,3 +26,4 @@ except:
     del numpy, build_ext, setup, Extension, os
 
 from coreaudio import play, record, play_and_record, AudioInterface
+import stream
