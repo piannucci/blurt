@@ -65,8 +65,23 @@ class WiFi_802_11:
     def synchronize(self, input, multi=False):
         score = self.autocorrelate(input)
         if multi:
-            score2 = -score*np.r_[0,np.diff(score,2),0]
-            startIndex = 16*np.where(score2>score2.max()*.5)[0] - 64
+            if 0:
+                # look for points with a large negative second difference,
+                # e.g. peaks
+                # does not cope well with noise
+                score2 = -score*np.r_[0,np.diff(score,2),0]
+                idx = np.where(score2>score2.max()*.5)[0]
+            else:
+                # look for points outstanding in their neighborhood
+                # by explicit comparison
+                l = 25
+                M = scipy.linalg.toeplitz(np.r_[score, np.zeros(2*l)], np.zeros(2*l+1)).T
+                ext_input = np.r_[np.zeros(l), score, np.zeros(l)]
+                M[:l] = M[:l] < ext_input
+                M[l+1:] = M[l+1:] < ext_input
+                M[l] = True
+                idx = np.where(M.all(0))[0] - l
+            startIndex = 16*idx - 64
             startIndex[np.where(startIndex<0)] = 0
         else:
             startIndex = max(0, 16*np.argmax(score)-64) + startOff
