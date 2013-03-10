@@ -112,6 +112,22 @@ class WhiteNoise(ThreadedStream):
     def thread_produce(self):
         return np.random.standard_normal(1024) * .2
 
+class Sine(ThreadedStream):
+    def init(self):
+        super(Sine, self).init()
+        self.f = 880.
+        self.i = 0
+        self.Fs = 48000.
+        self.channels = 2
+    def thread_produce(self):
+        j = np.arange(1024) + self.i
+        t = j/self.Fs
+        omega = self.f*2*np.pi
+        self.i += j.size
+        l = .2*np.sin(omega*t)
+        r = .2*np.sin(omega*t+.5*np.pi)
+        return np.hstack((l[:,np.newaxis], r[:,np.newaxis]))
+
 class VUMeter(ThreadedStream):
     def init(self):
         super(VUMeter, self).init()
