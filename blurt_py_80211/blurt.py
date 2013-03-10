@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+import os
+try:
+    os.chdir(os.path.dirname(__file__))
+except OSError:
+    pass
+except:
+    exit()
 import numpy as np
 import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
@@ -9,7 +16,7 @@ wifi = wifi80211.WiFi_802_11()
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
-Fc = 16000. #Fs/4
+Fc = 12000. #Fs/4
 upsample_factor = 16
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
@@ -131,3 +138,22 @@ if __name__ == '__main__':
             decoderDiagnostics()
         elif sys.argv[1] == '--tx':
             startTransmitting()
+        elif sys.argv[1] == '--wav' and len(sys.argv) > 2:
+            import wave
+            f = wave.open(sys.argv[2])
+            Fs = f.getframerate()
+            assert f.getcompname() == 'not compressed' and f.getcomptype() == 'NONE', 'Bad WAV type'
+            channels = f.getnchannels()
+            nframes = f.getnframes()
+            dtype = [None, np.uint8, np.int16, None, np.int32][f.getsampwidth()]
+            input = f.readframes(nframes)
+            if f.getsampwidth() == 3:
+                frames = ''.join(frames[3*i:3*(i+1)] + ('\xff' if ord(frames[3*i+2]) & 0x80 else '\0') for i in xrange(len(frames)/3))
+                dtype = np.int32
+            input = np.fromstring(input, dtype).astype(float)
+            nframes = input.size // channels
+            input = input.reshape(nframes, channels).mean(1)
+            f.close()
+            input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
+            for payload,_,_,lsnr_estimate in wifi.decode(input)[0]:
+                print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
