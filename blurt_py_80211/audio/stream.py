@@ -38,26 +38,33 @@ class StreamArray(np.ndarray):
 
 class ThreadedStream(StreamArray):
     def init(self):
-        self.in_queue = Queue.Queue(8)
-        self.out_queue = Queue.Queue(8)
+        self.in_queue = Queue.Queue(64)
+        self.out_queue = Queue.Queue(64)
         if hasattr(self, 'thread_consume'):
             self.in_thread = thread.start_new_thread(self.in_thread_loop, ())
         if hasattr(self, 'thread_produce'):
             self.out_thread = thread.start_new_thread(self.out_thread_loop, ())
         self.out_fragment = None
+        self.numSamplesRead = 0
+        self.numSamplesWritten = 0
+        self.numSamplesProduced = 0
+        self.numSamplesConsumed = 0
     def in_thread_loop(self):
         while True:
             work = self.in_queue.get()
             if work is None:
                 break
+            self.numSamplesConsumed += work.shape[0]
             self.thread_consume(work)
     def out_thread_loop(self):
         while True:
             work = self.thread_produce()
             if work is None:
                 break
+            self.numSamplesProduced += work.shape[0]
             self.out_queue.put(work)
     def consume(self, sequence):
+        self.numSamplesWritten += sequence.shape[0]
         try:
             self.in_queue.put_nowait(sequence)
         except Queue.Full:
@@ -94,6 +101,7 @@ class ThreadedStream(StreamArray):
                 i += n
                 if fragment.shape[0] > n:
                     self.out_fragment = fragment[n:]
+        self.numSamplesRead += result.shape[0]
         return result
     def onMainThread(self, fn):
         ca.add_to_main_thread_queue(fn)

@@ -8,6 +8,8 @@ mainThreadQueue = Queue.Queue()
 outBufSize = _coreaudio.getOutBufSize()
 inBufSize = _coreaudio.getInBufSize()
 sleepDuration = .1
+numSamplesPlayed = 0
+numSamplesRecorded = 0
 
 class AudioInterface(object):
     def __init__(self, device=None):
@@ -18,6 +20,8 @@ class AudioInterface(object):
         self.shouldStop = False
         self.device = None
     def playbackCallback(self, buffer):
+        global numSamplesPlayed
+        numSamplesPlayed += buffer.shape[0]
         if hasattr(self, 'recordingStarted') and not self.recordingStarted:
             buffer[:] = 0
         else:
@@ -34,6 +38,8 @@ class AudioInterface(object):
             return True
         return False
     def recordingCallback(self, data):
+        global numSamplesRecorded
+        numSamplesRecorded += data.shape[0]
         if hasattr(self, 'playbackStarted') and not self.playbackStarted:
             pass
         else:
