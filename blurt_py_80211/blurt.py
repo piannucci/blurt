@@ -9,7 +9,7 @@ wifi = wifi80211.WiFi_802_11()
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
-Fc = 19000. #Fs/4
+Fc = 16000. #Fs/4
 upsample_factor = 16
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
@@ -48,9 +48,9 @@ def presentResults(results, drawFunc):
             for result in _results:
                 payload, _, _, lsnr_estimate = result
                 print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
-        else:
-            decoderDiagnostics()
-            pl.draw()
+        #else:
+        #    decoderDiagnostics()
+        #    pl.draw()
         if drawFunc is not None:
             pl.figure(1)
             drawFunc()
