@@ -16,12 +16,14 @@ wifi = wifi80211.WiFi_802_11()
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
-Fc = 12000. #Fs/4
+Fc = 19000. #Fs/4
 upsample_factor = 16
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
 lsnr = None
+mask_noise = None
+
 rate = 0
 length = 16
 
@@ -98,8 +100,11 @@ class ContinuousTransmitter(audio.stream.ThreadedStream):
     def init(self):
         self.channels = 2
         super(ContinuousTransmitter, self).init()
+        self.i = 0
     def thread_produce(self):
         input_octets = ord('A') + np.random.random_integers(0,25,length)
+        input_octets[:6] = map(ord, '%06d' % self.i)
+        self.i += 1
         output = wifi.encode(input_octets, rate)
         output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None)
         return output
