@@ -56,7 +56,7 @@ def presentResults(results, drawFunc):
         if len(_results):
             for result in _results:
                 payload, _, _, lsnr_estimate = result
-                print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
+                print repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate)
         #else:
         #    decoderDiagnostics()
         #    pl.draw()
