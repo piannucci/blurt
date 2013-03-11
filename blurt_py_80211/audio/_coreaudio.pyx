@@ -354,7 +354,7 @@ def stopPlayback(cb):
     del cb.playbackStarted
     Py_DECREF(cb)
 
-cdef UInt32 inBufSize = 512
+cdef UInt32 inBufSize = 2048
 
 def getInBufSize():
     return inBufSize

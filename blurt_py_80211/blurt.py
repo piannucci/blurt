@@ -71,7 +71,7 @@ badPacketWaveforms = []
 class ContinuousReceiver(audioLoopback.AudioBuffer):
     def init(self):
         self.kwargs['maximum'] = int(Fs*4/upsample_factor)
-        self.kwargs['trigger'] = int(Fs*2/upsample_factor)
+        self.kwargs['trigger'] = int(Fs/upsample_factor)
         self.dtype = np.complex64
         super(ContinuousReceiver, self).init()
         self.inputProcessor = audioLoopback.InputProcessor(Fs, Fc, upsample_factor)
