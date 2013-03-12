@@ -70,8 +70,9 @@ badPacketWaveforms = []
 
 class ContinuousReceiver(audioLoopback.AudioBuffer):
     def init(self):
-        self.kwargs['maximum'] = int(Fs*4/upsample_factor)
-        self.kwargs['trigger'] = int(Fs/upsample_factor)
+        packetLength = wifi.encode(np.zeros(length, int), rate).size
+        self.kwargs['maximum'] = int(packetLength*4)
+        self.kwargs['trigger'] = int(packetLength*2)
         self.dtype = np.complex64
         super(ContinuousReceiver, self).init()
         self.inputProcessor = audioLoopback.InputProcessor(Fs, Fc, upsample_factor)
@@ -90,6 +91,8 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
                 del badPacketWaveforms[:-10]
             self.onMainThread(presentResults(results, drawFunc))
         except Exception, e:
+            badPacketWaveforms.append(input)
+            del badPacketWaveforms[:-10]
             print repr(e)
         if endIndex:
             return endIndex
