@@ -77,6 +77,17 @@ class WiFi_802_11:
         startIndex[np.where(startIndex<0)] = 0
         return startIndex
 
+    def wienerFilter(self, lts):
+        lts = np.fft.fft(lts.reshape(ofdm.format.ts_reps, ofdm.format.nfft), axis=1)
+        Y = lts.mean(0)
+        S_Y = (np.abs(lts)**2).mean(0)
+        # Wiener deconvolution
+        G = Y.conj()*ofdm.format.lts_freq / S_Y
+        # noise estimation via residuals
+        snr = 1./(G*lts - ofdm.format.lts_freq).var()
+        lsnr_estimate = 10*np.log10(snr)
+        return G, snr, lsnr_estimate
+
     def train(self, input):
         """
         Recover OFDM timing and frequency-domain deconvolution filter.
@@ -97,8 +108,7 @@ class WiFi_802_11:
         if 0:
             err = abs(freq_off_estimate - freq_offset)
             print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (Fs/64), err * 4e-6)
-        offset = 8 + 16
-        offset += N_sts_reps*N_sts_period
+        offset = N_sts_reps*N_sts_period
         # Next, obtain a fine frequency offset estimate from the long training sequences, and estimate
         # how uncertain this estimate is.
         N_lts_period = nfft
@@ -128,15 +138,15 @@ class WiFi_802_11:
         # if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
         # var(n) = var(input) / (snr num_used_sc/num_sc + 1)
         # var(x_i) = (var(input) - var(n)) / num_used_sc
+        # layout: STS, LTS_CP, LTS, signal
+        lts_cp = nfft/2
+        offsets = offset + lts_cp + np.arange(-8, 8)
+        results = [self.wienerFilter(input[off:off+N_lts_period*N_lts_reps]) for off in offsets]
+        # pick the offset that gives the highest SNR
+        offset_index = max(xrange(len(results)), key=lambda i:results[i][1])
+        G, snr, lsnr_estimate = results[offset_index]
+        offset = offsets[offset_index]
         var_input = input.var()
-        lts = np.fft.fft(input[offset:offset+N_lts_period*N_lts_reps].reshape(N_lts_reps, N_lts_period), axis=1)
-        Y = lts.mean(0)
-        S_Y = (np.abs(lts)**2).mean(0)
-        # Wiener deconvolution
-        G = Y.conj()*ofdm.format.lts_freq / S_Y
-        # noise estimation via residuals
-        snr = 1./(G*lts - ofdm.format.lts_freq).var()
-        lsnr_estimate = 10*np.log10(snr)
         var_n = var_input / (float(snr * Nsc_used) / Nsc + 1)
         var_x = var_input - var_n
         var_y = 2*var_n*var_x + var_n**2
@@ -146,7 +156,7 @@ class WiFi_802_11:
             # first print error, then print 1.5 sigma for the "best we can really expect"
             print 'Fine frequency estimation error: %.0f +/- %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, 1.5*uncertainty, err / (Fs/64), err * 4e-6)
         var_ni = var_x/Nsc_used/snr
-        offset += int((N_lts_reps+.5) * nfft) - 16
+        offset += N_lts_reps * nfft
         return (G, uncertainty, var_ni), offset, lsnr_estimate
 
     def kalman_init(self, uncertainty, var_n):
@@ -198,7 +208,7 @@ class WiFi_802_11:
         kalman_state = self.kalman_init(uncertainty, var_n)
         pilotPolarity = ofdm.pilotPolarity()
         demapped_bits = []
-        j = ncp - 16
+        j = ncp
         i = 0
         initializedPlot = False
         length_symbols = 0
@@ -264,6 +274,7 @@ class WiFi_802_11:
         drawingCalls = None if not visualize else []
         endIndex = 0
         working_buffer = np.empty_like(input)
+        minSize = ofdm.format.preambleLength + ofdm.format.ncp + ofdm.format.nfft
         for startIndex in self.synchronize(input):
             if startIndex < endIndex:
                 # we already successfully decoded this packet
@@ -271,7 +282,7 @@ class WiFi_802_11:
             synchronized_input = input[startIndex:]
             working_buffer[:synchronized_input.size] = synchronized_input
             working_buffer = working_buffer[:synchronized_input.size]
-            if working_buffer.size <= ofdm.format.preambleLength:
+            if working_buffer.size <= minSize:
                 continue
             training_results = self.train(working_buffer)
             if training_results is None:
