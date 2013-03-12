@@ -124,7 +124,7 @@ def decoderDiagnostics(waveform=None):
     Fs_eff = Fs/upsample_factor
     ac = wifi.autocorrelate(waveform)
     ac_t = np.arange(ac.size)*16/Fs_eff
-    synch = wifi.synchronize(waveform, True)/float(Fs_eff)
+    synch = wifi.synchronize(waveform)/float(Fs_eff)
     pl.figure(2)
     pl.clf()
     pl.subplot(211)

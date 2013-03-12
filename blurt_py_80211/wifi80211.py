@@ -62,29 +62,19 @@ class WiFi_802_11:
         Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
         return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
 
-    def synchronize(self, input, multi=False):
+    def synchronize(self, input):
         score = self.autocorrelate(input)
-        if multi:
-            if 0:
-                # look for points with a large negative second difference,
-                # e.g. peaks
-                # does not cope well with noise
-                score2 = -score*np.r_[0,np.diff(score,2),0]
-                idx = np.where(score2>score2.max()*.5)[0]
-            else:
-                # look for points outstanding in their neighborhood
-                # by explicit comparison
-                l = 25
-                M = scipy.linalg.toeplitz(np.r_[score, np.zeros(2*l)], np.zeros(2*l+1)).T
-                ext_input = np.r_[np.zeros(l), score, np.zeros(l)]
-                M[:l] = M[:l] < ext_input
-                M[l+1:] = M[l+1:] < ext_input
-                M[l] = True
-                idx = np.where(M.all(0))[0] - l
-            startIndex = 16*idx - 64
-            startIndex[np.where(startIndex<0)] = 0
-        else:
-            startIndex = max(0, 16*np.argmax(score)-64) + startOff
+        # look for points outstanding in their neighborhood
+        # by explicit comparison
+        l = 25
+        M = scipy.linalg.toeplitz(np.r_[score, np.zeros(2*l)], np.zeros(2*l+1)).T
+        ext_input = np.r_[np.zeros(l), score, np.zeros(l)]
+        M[:l] = M[:l] < ext_input
+        M[l+1:] = M[l+1:] < ext_input
+        M[l] = True
+        idx = np.where(M.all(0))[0] - l
+        startIndex = 16*idx - 64
+        startIndex[np.where(startIndex<0)] = 0
         return startIndex
 
     def train(self, input):
@@ -274,7 +264,7 @@ class WiFi_802_11:
         drawingCalls = None if not visualize else []
         endIndex = 0
         working_buffer = np.empty_like(input)
-        for startIndex in self.synchronize(input, True):
+        for startIndex in self.synchronize(input):
             if startIndex < endIndex:
                 # we already successfully decoded this packet
                 continue
