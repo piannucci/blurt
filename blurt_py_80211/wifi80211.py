@@ -54,12 +54,15 @@ class WiFi_802_11:
         return ofdm.encode(signal_subcarriers, data_subcarriers)
 
     def autocorrelate(self, input):
-        Nperiod = ofdm.format.nfft / 4
+        nfft = ofdm.format.nfft
+        ncp = ofdm.format.ncp
+        ts_reps = ofdm.format.ts_reps
+        Nperiod = nfft / 4
         autocorr = input[Nperiod:] * input[:-Nperiod].conj()
         Noutputs = autocorr.size // Nperiod
         autocorr = autocorr[:Nperiod*Noutputs].reshape(Noutputs, Nperiod).sum(1)
         corr_sum = np.abs(np.r_[np.zeros(5), autocorr]).cumsum()
-        Nreps = int(((ofdm.format.ts_reps+.5) * ofdm.format.nfft) / Nperiod)
+        Nreps = int(ts_reps * (nfft + ncp) / Nperiod)
         return corr_sum[Nreps-1:] - corr_sum[:-Nreps+1]
 
     def synchronize(self, input):
@@ -96,10 +99,11 @@ class WiFi_802_11:
         nfft = ofdm.format.nfft
         Nsc_used, Nsc = ofdm.format.Nsc_used, ofdm.format.Nsc
         ts_reps = ofdm.format.ts_reps
+        ncp = ofdm.format.ncp
         # First, obtain a coarse frequency offset estimate from the short training sequences
         N_sts_period = nfft / 4
         t_sts_period = N_sts_period/Fs
-        N_sts_reps = int(((ts_reps+.5) * nfft) / N_sts_period)
+        N_sts_reps = int((ts_reps * (nfft+ncp)) / N_sts_period)
         sts = input[:N_sts_period*N_sts_reps]
         if sts.size != N_sts_period*N_sts_reps:
             return None
@@ -108,12 +112,13 @@ class WiFi_802_11:
         if 0:
             err = abs(freq_off_estimate - freq_offset)
             print 'Coarse frequency estimation error: %.0f Hz (%5.3f bins, %5.3f cyc/sym)' % (err, err / (Fs/64), err * 4e-6)
-        offset = N_sts_reps*N_sts_period
         # Next, obtain a fine frequency offset estimate from the long training sequences, and estimate
         # how uncertain this estimate is.
         N_lts_period = nfft
         t_lts_period = N_lts_period/Fs
         N_lts_reps = ts_reps
+        lts_cp = ncp * N_lts_reps
+        offset = N_sts_reps*N_sts_period
         lts = input[offset:offset+N_lts_period*N_lts_reps]
         if lts.size != N_lts_period*N_lts_reps:
             return None
@@ -138,8 +143,6 @@ class WiFi_802_11:
         # if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
         # var(n) = var(input) / (snr num_used_sc/num_sc + 1)
         # var(x_i) = (var(input) - var(n)) / num_used_sc
-        # layout: STS, LTS_CP, LTS, signal
-        lts_cp = nfft/2
         offsets = offset + lts_cp + np.arange(-8, 8)
         results = [self.wienerFilter(input[off:off+N_lts_period*N_lts_reps]) for off in offsets]
         # pick the offset that gives the highest SNR

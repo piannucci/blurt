@@ -2,9 +2,12 @@
 import numpy as np
 import scrambler, util
 
-def trainingSequenceFromFreq(ts_freq, reps=2):
+def trainingSequenceFromFreq(ts_freq, reps, ncp):
+    nfft = ts_freq.size
+    tilesNeeded = (ncp*reps + nfft-1) // nfft + reps + 1 # +1 for cross-fade
     ts = np.fft.ifft(ts_freq)
-    return np.tile(ts, reps+2)[ts_freq.size/2:][:(1+2*reps)*ts_freq.size/2+1]
+    start = -(ncp*reps) % nfft
+    return np.tile(ts, tilesNeeded)[start:-(nfft-1)]
 
 def rangesInclusive(ranges):
     return np.hstack([np.arange(a,b+1) for a,b in ranges])
@@ -20,13 +23,13 @@ class LT:
     sts_freq = np.zeros(64, np.complex128)
     sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4],
                  (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))
-    sts_time = trainingSequenceFromFreq(sts_freq, ts_reps)
+    sts_time = trainingSequenceFromFreq(sts_freq, ts_reps, ncp)
     lts_freq = np.array([
         0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
         1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1,
         1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
-    lts_time = trainingSequenceFromFreq(lts_freq, ts_reps)
+    lts_time = trainingSequenceFromFreq(lts_freq, ts_reps, ncp)
     dataSubcarriers = rangesInclusive(((-26,-22),(-20,-8),(-6,-1),(1,6),(8,20),(22,26)))
     pilotSubcarriers = np.array([-21,-7,7,21])
     pilotTemplate = np.array([1,1,1,-1])
@@ -41,9 +44,12 @@ class LT_audio(LT):
 
 # High Throughput 20 MHz bandwidth
 class HT20(LT):
+    nfft = 64
+    ncp = 16
+    ts_reps = 2
     lts_freq = LT.lts_freq.copy()
     lts_freq.put([27, 28, -28, -27], [-1, -1, 1, 1])
-    lts_time = trainingSequenceFromFreq(lts_freq)
+    lts_time = trainingSequenceFromFreq(lts_freq, ts_reps, ncp)
     dataSubcarriers = rangesInclusive(((-28,-22),(-20,-8),(-6,-1),(1,6),(8,20),(22,28)))
     Nsc = dataSubcarriers.size
 
@@ -51,11 +57,12 @@ class HT20(LT):
 class HT40:
     nfft = 128
     ncp = 32
+    ts_reps = 2
     sts_freq = np.r_[np.fft.fftshift(LT.sts_freq), 1j*np.fft.fftshift(LT.sts_freq)]
-    sts_time = trainingSequenceFromFreq(sts_freq)
+    sts_time = trainingSequenceFromFreq(sts_freq, ts_reps, ncp)
     lts_freq = np.r_[np.fft.fftshift(LT.lts_freq), 1j*np.fft.fftshift(LT.lts_freq)]
     lts_freq.put([-32, -5, -4, -3, -2, 2, 3, 4, 5, 32], [1, -1, -1, -1, 1, -1, 1, 1, -1, 1])
-    lts_time = trainingSequenceFromFreq(lts_freq)
+    lts_time = trainingSequenceFromFreq(lts_freq, ts_reps, ncp)
     dataSubcarriers = rangesInclusive(((-58,-54),(-52,-26),(-24,-12),(-10,-2),(2,10),(12,24),(26,52),(54,58)))
     pilotSubcarriers = np.array([-53,-25,-11,11,25,53])
     pilotTemplate = np.array([1,1,1,-1,0,0,0,0])
