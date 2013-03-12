@@ -296,7 +296,7 @@ def getDevices():
     free(devices)
     return result
 
-cdef UInt32 outBufSize = 512
+cdef UInt32 outBufSize = 2048
 
 def getOutBufSize():
     return outBufSize
