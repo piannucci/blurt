@@ -83,7 +83,9 @@ class OFDM:
         symbols = np.zeros((Ns,self.format.nfft), np.complex)
         symbols[:,self.format.dataSubcarriers] = dataSubcarriers
         symbols[:,self.format.pilotSubcarriers] = self.format.pilotTemplate * np.array(list(util.truncate(pilotPolarity, Ns)))[:,np.newaxis]
-        return np.tile(np.fft.ifft(symbols), (1,3))[:,self.format.nfft-self.format.ncp:2*self.format.nfft+1]
+        tilesNeeded = (self.format.ncp+self.format.nfft-1) // self.format.nfft + 2 # +1 for symbol, +1 for cross-fade
+        start = -self.format.ncp % self.format.nfft
+        return np.tile(np.fft.ifft(symbols), (1,tilesNeeded))[:,start:-(self.format.nfft-1)]
     def encode(self, signal_subcarriers, data_subcarriers):
         pilotPolarity = self.pilotPolarity()
         signal_output = self.encodeSymbols(signal_subcarriers[np.newaxis,:], pilotPolarity)
