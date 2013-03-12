@@ -64,7 +64,7 @@ pl.fill_between(np.arange(runs.size),
                 linewidth=0.)
 ys = xrange(-3,1)
 pl.yticks(ys, ['$10^{%d}$' % y for y in ys])
-pl.ylim(round(np.log10(runs[np.where(runs)]).min()))
+pl.ylim(-3, 0) # round(np.log10(runs[np.where(runs)]).min())
 pl.plot(np.log10(runs), label='Observed Probability')
 pl.plot(np.log10((1-p)**np.arange(runs.size)*p), 'k--', label='Geometric fit')
 pl.legend()
