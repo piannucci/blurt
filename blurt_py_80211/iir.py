@@ -1,6 +1,7 @@
 from numpy import *
 from scipy import weave
 from scipy.weave import converters
+import subprocess
 
 def _iir_cpp_impl(order, alpha, beta, gamma, float=False):
     impl = "for (int i=0; i<%d && i<N; i++)\n" % order
@@ -22,9 +23,10 @@ class IIRFilter:
                      ['N','x','y'], type_converters=converters.blitz, verbose=0)
         return y
 
-def lowpass(freq, order=6):
-    import subprocess
-    args = ['./mkfilter', '-Bu', '-Lp', '-o', str(order), '-l', '-a', str(freq)]
+def mkfilter(method, type, order, alpha):
+    if not isinstance(alpha, (tuple, list)):
+        alpha = (alpha,)
+    args = ['./mkfilter'] + ('-%s' % method).split(' ') + ['-%s' % type, '-o', str(order), '-l', '-a'] + [str(a) for a in alpha]
     result = subprocess.Popen(args, stdout=subprocess.PIPE).communicate()[0]
     result = result.strip().split('\n')[1:]
     gamma = 1./float(result[0].strip().split(' ')[-1])
@@ -32,12 +34,8 @@ def lowpass(freq, order=6):
     beta = [float(x.strip()) for x in result[4+order:5+2*order]]
     return IIRFilter(order, alpha, beta, gamma)
 
-def highpass(freq, order=6):
-    import subprocess
-    args = ['./mkfilter', '-Bu', '-Hp', '-o', str(order), '-l', '-a', str(freq)]
-    result = subprocess.Popen(args, stdout=subprocess.PIPE).communicate()[0]
-    result = result.strip().split('\n')[1:]
-    gamma = 1./float(result[0].strip().split(' ')[-1])
-    alpha = [float(x.strip()) for x in result[2:3+order]]
-    beta = [float(x.strip()) for x in result[4+order:5+2*order]]
-    return IIRFilter(order, alpha, beta, gamma)
+def lowpass(freq, order=6, method='Bu'):
+    return mkfilter(method, 'Lp', order, freq)
+
+def highpass(freq, order=6, method='Bu'):
+    return mkfilter(method, 'Hp', order, freq)
