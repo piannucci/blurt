@@ -9,7 +9,7 @@ except:
 import numpy as np
 import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
-import audio
+import audio, util
 import pylab as pl
 
 wifi = wifi80211.WiFi_802_11()
@@ -81,7 +81,6 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
         #print '%.0f%%' % ((float(self.length)/self.maximum) * 100)
         #print '\r\x1b[K' + ('.' * int(30 + 10*np.log10(np.var(input)))),
         endIndex = 0
-        visualize = True
         try:
             results, drawFunc = wifi.decode(input, visualize, visualize)
             for result in results:
@@ -136,32 +135,50 @@ def decoderDiagnostics(waveform=None):
     yl = pl.ylim(); pl.vlines(synch, *yl); pl.ylim(*yl)
     pl.xlim(0, waveform.size/Fs_eff)
 
+visualize = False
+
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        if sys.argv[1] == '--rx':
+        args = sys.argv[1:]
+        while True:
+            if args[0] == '--Fc':
+                Fc = float(args[1])
+                args = args[2:]
+            elif args[0] == '--visualize':
+                visualize = True
+                args = args[1:]
+            else:
+                break
+        if args[0] == '--rx':
             try:
                 startListening()
             except KeyboardInterrupt:
                 pass
             decoderDiagnostics()
-        elif sys.argv[1] == '--tx':
+        elif args[0] == '--tx':
             startTransmitting()
-        elif sys.argv[1] == '--wav' and len(sys.argv) > 2:
-            import wave
-            f = wave.open(sys.argv[2])
-            Fs = f.getframerate()
-            assert f.getcompname() == 'not compressed' and f.getcomptype() == 'NONE', 'Bad WAV type'
-            channels = f.getnchannels()
-            nframes = f.getnframes()
-            dtype = [None, np.uint8, np.int16, None, np.int32][f.getsampwidth()]
-            input = f.readframes(nframes)
-            if f.getsampwidth() == 3:
-                frames = ''.join(frames[3*i:3*(i+1)] + ('\xff' if ord(frames[3*i+2]) & 0x80 else '\0') for i in xrange(len(frames)/3))
-                dtype = np.int32
-            input = np.fromstring(input, dtype).astype(float)
-            nframes = input.size // channels
-            input = input.reshape(nframes, channels).mean(1)
-            f.close()
+        elif args[0] == '--wav-in' and len(args) > 1:
+            input, Fs = util.readwave(args[1])
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
             for payload,_,_,lsnr_estimate in wifi.decode(input)[0]:
                 print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
+        elif args[0] == '--wav-out' and len(args) > 1:
+            fn = args[1]
+            args = args[2:]
+            packets = 1
+            while len(args):
+                if args[0] == '--packets':
+                    packets = int(args[1])
+                    args = args[2:]
+            outputChunks = []
+            for i in xrange(packets):
+                input_octets = ord('A') + np.random.random_integers(0,25,length)
+                input_octets[:6] = map(ord, '%06d' % i)
+                output = audioLoopback.processOutput(wifi.encode(input_octets, rate), Fs, Fc, upsample_factor, mask_noise)
+                output *= 1 / np.abs(output).max()
+                outputChunks.append(output)
+                outputChunks.append(np.zeros((Fs/10, outputChunks[0].shape[1])))
+            outputChunks.append(np.zeros((Fs/2, outputChunks[0].shape[1])))
+            output = np.vstack(outputChunks)
+            bytesPerSample = 3
+            util.writewave(fn, output, Fs, bytesPerSample)
