@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
+import wave
 
 def upsample(x, n):
     M = x.size
@@ -45,3 +46,38 @@ def truncate(x, i):
 def papr(x):
     m = np.abs(x)**2
     return m.max()/m.mean()
+
+def readwave(fn):
+    f = wave.open(fn)
+    Fs = f.getframerate()
+    assert f.getcompname() == 'not compressed' and f.getcomptype() == 'NONE', 'Bad WAV type'
+    channels = f.getnchannels()
+    nframes = f.getnframes()
+    dtype = [None, np.uint8, np.int16, None, np.int32][f.getsampwidth()]
+    input = f.readframes(nframes)
+    input = np.fromstring(input, np.uint8)
+    if f.getsampwidth() == 3:
+        input = np.hstack((0x80 + np.zeros((input.size//3, 1), dtype=np.uint8), input.reshape(input.size//3, 3))).flatten()
+        dtype = np.int32
+    input = input.view(dtype=dtype).astype(float)
+    nframes = input.size // channels
+    input = input.reshape(nframes, channels).mean(1)
+    f.close()
+    return input, Fs
+
+def writewave(fn, x, Fs, bytesPerSample=3):
+    nframes, nchannels = x.shape
+    x = x.flatten()
+    if x.dtype.kind == 'f':
+        x = (x * ((1<<31) - 2)).round()
+    x = x.astype(np.int32)
+    x = x.view(dtype=np.uint8)
+    x = x.reshape(nframes*nchannels, 4)[:,-bytesPerSample:].flatten().tostring()
+    f = wave.open(fn, 'w')
+    f.setnchannels(nchannels)
+    f.setsampwidth(bytesPerSample)
+    f.setframerate(Fs)
+    f.setnframes(nframes)
+    f.setcomptype('NONE', 'not compressed')
+    f.writeframes(x)
+    f.close()
