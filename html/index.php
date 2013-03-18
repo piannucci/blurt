@@ -55,6 +55,8 @@ if (isset($_FILES['myFile'])) {
                 top: 50%;
                 background-position: center left;
                 background-repeat: repeat-x;
+                image-rendering: -webkit-optimize-contrast;
+                image-rendering: optimize-contrast;
             }
             #middle[id] {
                 display: table-cell;
