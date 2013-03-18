@@ -36,6 +36,8 @@
       }
     }
 
+    var connected = false;
+
     this.record = function(){
       recording = true;
     }
