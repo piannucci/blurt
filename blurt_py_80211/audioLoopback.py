@@ -24,7 +24,9 @@ def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
 
 def processInput(input, loopback_Fs, loopback_Fc, upsample_factor):
     input = input * np.exp(-1j * 2 * np.pi * np.arange(input.size) * loopback_Fc / loopback_Fs)
-    input = iir.lowpass(.8/upsample_factor)(np.r_[np.zeros(6), input])[6::upsample_factor]
+    order = 6
+    input = iir.lowpass(.8/upsample_factor, order=order)(np.r_[np.zeros(order), input])[order:]
+    input = input[(np.arange(input.size/upsample_factor) * upsample_factor).astype(int)]
     return input
 
 class InputProcessor:
