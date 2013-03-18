@@ -11,6 +11,7 @@ import sys
 import audioLoopback, channelModel, maskNoise, wifi80211
 import audio, util
 import pylab as pl
+import iir
 
 wifi = wifi80211.WiFi_802_11()
 
@@ -103,13 +104,16 @@ class ContinuousTransmitter(audio.stream.ThreadedStream):
         self.channels = 2
         super(ContinuousTransmitter, self).init()
         self.i = 0
+        cutoff = Fc - Fs/upsample_factor
+        self.hp = [iir.highpass(cutoff/Fs, continuous=True, dtype=np.float64) for i in xrange(2)]
     def thread_produce(self):
         input_octets = ord('A') + np.random.random_integers(0,25,length)
         input_octets[:6] = map(ord, '%06d' % self.i)
         self.i += 1
         output = wifi.encode(input_octets, rate)
         output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None)
-        return output
+        return np.hstack((self.hp[0](output[:,0])[:,np.newaxis],
+                          self.hp[1](output[:,1])[:,np.newaxis]))
 
 def startListening():
     audio.record(ContinuousReceiver(), Fs)
@@ -147,6 +151,9 @@ if __name__ == '__main__':
             elif args[0] == '--visualize':
                 visualize = True
                 args = args[1:]
+            elif args[0] == '--length':
+                length = int(args[1])
+                args = args[2:]
             else:
                 break
         if args[0] == '--rx':
