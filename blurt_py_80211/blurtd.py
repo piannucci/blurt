@@ -1,11 +1,17 @@
 #!/usr/bin/env python
+import matplotlib, matplotlib.mlab
+matplotlib.use('Agg')
+
 import blurt
 import socket
 import os, os.path
 import time
 import pylab as pl
+import numpy as np
 
-pl.ion()
+np.seterr(divide='ignore')
+
+#pl.ion()
 
 sockfile = "/blurt/socket"
 
@@ -39,13 +45,19 @@ try:
                 Fs /= upsample_factor
                 pl.clf()
                 pl.axis('off')
-                pl.axes((0,0,1,1), frameon=False, axisbg=(0,0,0,0))
+                ax = pl.axes((0,0,1,1), frameon=False, axisbg=(0,0,0,0))
                 pl.tick_params(bottom=False, top=False, left=False, right=False)
-                pl.specgram(input, Fs=Fs, cmap='custom_cmap', NFFT=64,
-                            noverlap=64-4, window=lambda x:x,
-                            interpolation='nearest')
-                pl.xlim(0,input.size/(Fs))
-                pl.ylim(-Fs/2, Fs/2)
+                Pxx,freqs,bins = matplotlib.mlab.specgram(input, Fs=Fs, NFFT=64, noverlap=64-4, window=lambda x:x)
+                Pxx = 10.*np.log10(Pxx)[::-1,:,np.newaxis]
+                Pxx -= Pxx.min()
+                Pxx /= Pxx.max()
+                Pxx = np.clip(Pxx * 2. - 1., 0., 1.)
+                Pxx = np.concatenate((np.ones_like(Pxx)/Pxx,)*3 + (Pxx,), axis=2)
+                ax.imshow(Pxx, interpolation='nearest', vmin=0, vmax=1,
+                          extent=(0, bins.max(), freqs[0], freqs[-1]))
+                ax.axis('auto')
+                pl.xlim(0,bins.max())
+                pl.ylim(freqs[0], freqs[-1])
                 pl.draw()
                 import StringIO, base64
                 s = StringIO.StringIO()
