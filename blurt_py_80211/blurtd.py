@@ -31,7 +31,7 @@ cmap = {
 }
 
 pl.register_cmap(name='custom_cmap', data=cmap)
-pl.figure(frameon=False, figsize=(5,2))
+pl.figure(frameon=False, figsize=(6,3))
 
 try:
     while True:
@@ -61,7 +61,7 @@ try:
                 pl.draw()
                 import StringIO, base64
                 s = StringIO.StringIO()
-                pl.savefig(s, format='png', dpi=72, transparent=True)
+                pl.savefig(s, format='png', dpi=64, transparent=True)
                 img = 'data:image/png;base64,' + base64.b64encode(s.getvalue())
                 s.close()
                 results, _ = blurt.wifi.decode(input)
