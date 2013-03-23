@@ -101,6 +101,7 @@ if (isset($_FILES['myFile'])) {
         }
 
         function wamiStarted() {
+            onRecordingStarted();
         }
 
         function wamiFinished(result) {
@@ -117,20 +118,22 @@ if (isset($_FILES['myFile'])) {
             }
         }
 
+        function onRecordingStarted() {
+            startAnimation('record');
+            status('Recording...');
+            recordingTimeout = window.setTimeout(stopRecording, 5000);
+            awaitingRecording = true;
+        }
+
         function record() {
             clearRecordingTimeout();
             if (recorder != null) {
                 recorder.clear();
                 recorder.record();
+                onRecordingStarted();
             } else if (wamiInitialized) {
                 Wami.startRecording(startedfn="wamiStarted", finishedfn="wamiFinished", failedfn="wamiFailed");
-            } else {
-                return;
             }
-            startAnimation('record');
-            status('Recording...');
-            recordingTimeout = window.setTimeout(stopRecording, 5000);
-            awaitingRecording = true;
         }
 
         function getUserMediaSuccess(s) {
