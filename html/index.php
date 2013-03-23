@@ -17,255 +17,16 @@ if (isset($_FILES['myFile'])) {
     }
     print $result;
     fclose($f);
-    //print shell_exec("/usr/bin/blurt " . getcwd() . '/' . $fn);
     exit;
 }
 ?>
 <html>
     <head>
         <title>Sign up</title>
-        <style type="text/css">
-            body {
-                background: #87e0fd; /* Old browsers */
-                background: url('noise.png') center center, -moz-radial-gradient(center, ellipse cover,  #5A6978 0%, #293948 100%); /* FF3.6+ */
-                background: url('noise.png') center center, -webkit-gradient(radial, center center, 0px, center center, 100%, color-stop(0%,#5A6978), color-stop(100%,#293948)); /* Chrome,Safari4+ */
-                background: url('noise.png') center center, -webkit-radial-gradient(center, ellipse cover,  #5A6978 0%,#293948 100%); /* Chrome10+,Safari5.1+ */
-                background: url('noise.png') center center, -o-radial-gradient(center, ellipse cover,  #5A6978 0%,#293948 100%); /* Opera 12+ */
-                background: url('noise.png') center center, -ms-radial-gradient(center, ellipse cover,  #5A6978 0%,#293948 100%); /* IE10+ */
-                background: url('noise.png') center center, radial-gradient(ellipse at center,  #5A6978 0%,#293948 100%); /* W3C */
-            }
-            body, html {
-                height: 100%;
-                margin: 0;
-                padding: 0;
-            }
-            #outer {
-                display: table;
-                height: 100%;
-                width: 100%;
-                overflow: hidden;
-                position: relative;
-            }
-            #outer[id] {
-                display: table;
-                position: static;
-            }
-            #middle {
-                position: absolute;
-                top: 50%;
-                background-position: center left;
-                background-repeat: repeat-x;
-                image-rendering: -webkit-optimize-contrast;
-                image-rendering: optimize-contrast;
-            }
-            #middle[id] {
-                display: table-cell;
-                vertical-align: middle;
-                width: 100%;
-                position: static;
-                overflow: auto;
-            }
-            .form-container {
-                overflow: hidden;
-                position: relative;
-                top: -50%;
-                margin-left: auto; margin-right: auto;
-                border: 1px solid #f2e3d2;
-                background: #c9b7a2;
-                background: url('noise2.png'), -webkit-gradient(linear, left top, left bottom, from(#f2e3d2), to(#c9b7a2));
-                background: url('noise2.png'), -webkit-linear-gradient(top, #f2e3d2, #c9b7a2);
-                background: url('noise2.png'), -moz-linear-gradient(top, #f2e3d2, #c9b7a2);
-                background: url('noise2.png'), -ms-linear-gradient(top, #f2e3d2, #c9b7a2);
-                background: url('noise2.png'), -o-linear-gradient(top, #f2e3d2, #c9b7a2);
-                background-image: -ms-linear-gradient(top, #f2e3d2 0%, #c9b7a2 100%);
-                -webkit-border-radius: 8px;
-                -moz-border-radius: 8px;
-                border-radius: 8px;
-                -webkit-box-shadow: rgba(000,000,000,0.9) 0 1px 2px, inset rgba(255,255,255,0.4) 0 0px 0;
-                -moz-box-shadow: rgba(000,000,000,0.9) 0 1px 2px, inset rgba(255,255,255,0.4) 0 0px 0;
-                box-shadow: rgba(000,000,000,0.9) 0 1px 2px, inset rgba(255,255,255,0.4) 0 0px 0;
-                font-family: 'Helvetica Neue',Helvetica,sans-serif;
-                text-decoration: none;
-                vertical-align: middle;
-                min-width:300px;
-                padding:20px;
-                width:300px;
-                display: table;
-                height: 20px;
-                -webkit-transition: all .5s ease-in-out;
-                -moz-transition: all .5s ease-in-out;
-            }
-            .form-field {
-                border: 1px solid #c9b7a2;
-                background: #e4d5c3;
-                -webkit-border-radius: 4px;
-                -moz-border-radius: 4px;
-                border-radius: 4px;
-                color: #c9b7a2;
-                -webkit-box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(000,000,000,0.7) 0 0px 0px;
-                -moz-box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(000,000,000,0.7) 0 0px 0px;
-                box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(000,000,000,0.7) 0 0px 0px;
-                padding:8px;
-                margin-bottom:20px;
-                width:298px;
-            }
-            .form-field:focus {
-                background: #fff;
-                color: #725129;
-            }
-            .form-container h2 {
-                text-shadow: #fdf2e4 0 1px 0;
-                font-size:18px;
-                margin: 0 0 10px 0;
-                font-weight:bold;
-                text-align:center;
-            }
-            .form-title {
-                margin-bottom:10px;
-                color: #725129;
-                text-shadow: #fdf2e4 0 1px 0;
-            }
-            .submit-container {
-                margin:0px 0;
-                text-align:center;
-            }
-            .submit-button {
-                border: 1px solid #447314;
-                background: #6aa436;
-                background: url('noise.png'), -webkit-gradient(linear, left top, left bottom, from(#8dc059), to(#6aa436));
-                background: url('noise.png'), -webkit-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -moz-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -ms-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -o-linear-gradient(top, #8dc059, #6aa436);
-                background-image: -ms-linear-gradient(top, #8dc059 0%, #6aa436 100%);
-                -webkit-border-radius: 4px;
-                -moz-border-radius: 4px;
-                border-radius: 4px;
-                -webkit-box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(255,255,255,0.4) 0 1px 0;
-                -moz-box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(255,255,255,0.4) 0 1px 0;
-                box-shadow: rgba(255,255,255,0.4) 0 1px 0, inset rgba(255,255,255,0.4) 0 1px 0;
-                text-shadow: #addc7e 0 1px 0;
-                color: #31540c;
-                font-family: helvetica, serif;
-                padding: 8.5px 18px;
-                font-size: 16px;
-                text-decoration: none;
-                vertical-align: middle;
-                width:300px;
-            }
-            .submit-button:hover {
-                border: 1px solid #447314;
-                text-shadow: #31540c 0 1px 0;
-                background: #6aa436;
-                background: url('noise.png'), -webkit-gradient(linear, left top, left bottom, from(#8dc059), to(#6aa436));
-                background: url('noise.png'), -webkit-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -moz-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -ms-linear-gradient(top, #8dc059, #6aa436);
-                background: url('noise.png'), -o-linear-gradient(top, #8dc059, #6aa436);
-                background-image: -ms-linear-gradient(top, #8dc059 0%, #6aa436 100%);
-                color: #fff;
-            }
-            .submit-button:active {
-                text-shadow: #31540c 0 1px 0;
-                border: 1px solid #447314;
-                background: #8dc059;
-                background: url('noise.png'), -webkit-gradient(linear, left top, left bottom, from(#6aa436), to(#6aa436));
-                background: url('noise.png'), -webkit-linear-gradient(top, #6aa436, #8dc059);
-                background: url('noise.png'), -moz-linear-gradient(top, #6aa436, #8dc059);
-                background: url('noise.png'), -ms-linear-gradient(top, #6aa436, #8dc059);
-                background: url('noise.png'), -o-linear-gradient(top, #6aa436, #8dc059);
-                background-image: -ms-linear-gradient(top, #6aa436 0%, #8dc059 100%);
-                color: #fff;
-            }
-            .screens {
-                position: relative;
-            }
-            .form-screen {
-                position:absolute;
-                -webkit-transition: all .5s ease-in-out;
-                -moz-transition: all .5s ease-in-out;
-            }
-            .activeScreen {
-                -webkit-transform: translate(0px, 0);
-                -moz-transform: translate(0px, 0);
-            }
-            .rootScreen:not(.activeScreen) {
-                -webkit-transform: translate(-340px, 0);
-                -moz-transform: translate(-340px, 0);
-            }
-            .subScreen:not(.activeScreen) {
-                -webkit-transform: translate(340px, 0);
-                -moz-transform: translate(340px, 0);
-            }
-            .noteshadow {
-                position:absolute;
-                left: 80px;
-                top: 12px;
-                font-size:140px;
-                text-shadow: #eed 0 2px 2px, #221 0 -1px 1px;
-            }
-            .note {
-                position:absolute;
-                left: 80px;
-                top: 12px;
-                font-size:140px;
-                background: -webkit-linear-gradient(#725129, #392814);
-                background: -moz-linear-gradient(#725129, #392814);
-                -webkit-background-clip: text;
-                -moz-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                -moz-text-fill-color: transparent;
-                text-shadow: none;
-            }
-            @-webkit-keyframes successanim {
-                from { background-position: -120px 175px; }
-                10%  { background-position: -100px 160px; }
-                20%  { background-position:  -80px 145px; }
-                30%  { background-position: -100px 130px; }
-                40%  { background-position: -120px 115px; }
-                50%  { background-position: -100px 100px; }
-                60%  { background-position:  -80px  85px; }
-                70%  { background-position: -100px  70px; }
-                80%  { background-position: -120px  55px; }
-                90%  { background-position: -100px  40px; }
-                to   { background-position:  -80px  25px; }
-            }
-            #notefg {
-                position:absolute;
-                left: 80px;
-                top: 12px;
-                font-size:140px;
-                -webkit-background-clip: text;
-                -moz-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                -moz-text-fill-color: transparent;
-            }
-            .notefganim {
-                -webkit-animation-name: successanim;
-                -webkit-animation-timing-function: linear;
-                -webkit-animation-duration: 5s;
-                -webkit-animation-iteration-count: 1;
-                -webkit-animation-fill-mode: forwards;
-                background: url('drawing.svg');
-                background-repeat: no-repeat;
-            }
-            .notefgfailanim {
-                background: -webkit-linear-gradient(#ff0000, #800000);
-                background-position:  0px 0px;
-            }
-            #status {
-                text-align: center;
-                margin-top:180px;
-                width: 300px;
-                max-width: 300px;
-                min-height: 20px;
-            }
-            .notemask {
-                clip-path: url(#c1);
-                color: transparent !important;
-            }
-        </style>
+        <link rel="stylesheet" type="text/css" href="ui.css">
         <script type="text/javascript" src="recorder.js"> </script>
+        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/swfobject/2.2/swfobject.js"></script>
+        <script type="text/javascript" src="wamirecorder.js"> </script>
         <script type="text/javascript">
         <!--
         var activeScreen = 'intro';
@@ -282,116 +43,187 @@ if (isset($_FILES['myFile'])) {
             document.querySelector('#middle').style.backgroundImage = null;
         }
 
-        var args = {audio: true};
         window.URL = window.URL || window.webkitURL;
         navigator.getUserMedia  = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
         var recorder = null;
+        var wamiInitialized = false;
+        var awaitingRecording = true;
         var recordingTimeout = null;
+        var inProgressXHR = null;
+        function status(s) {
+            var el = document.querySelector('#status');
+            if (el.innerText != undefined)
+                el.innerText = s;
+            else
+                el.textContent = s;
+        }
+
+        function completePost(responseText) {
+            console.log(responseText);
+            imageLength = parseInt(responseText.substr(0, 8), 10);
+            image = responseText.substr(8, imageLength);
+            textLength = parseInt(responseText.substr(8+imageLength, 8), 10);
+            text = responseText.substr(16+imageLength, textLength);
+            status(text);
+            document.querySelector('#middle').style.backgroundImage = 'url(\'' + image + '\')';
+            document.querySelector('#form').style.height = document.querySelector('#record').scrollHeight;
+            inProgressXHR = null;
+        }
+
+        function beginPost(file) {
+            abortPost();
+            var uri = "/index.php";
+            var xhr = new XMLHttpRequest();
+            var fd = new FormData();
+
+            xhr.open("POST", uri, true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4 && xhr.status == 200)
+                    completePost(xhr.responseText);
+            };
+            inProgressXHR = xhr;
+            fd.append('myFile', file);
+            xhr.send(fd);
+        }
+
+        function abortPost() {
+            if (inProgressXHR != null)
+                inProgressXHR.abort();
+            inProgressXHR = null;
+        }
+
+        function startAnimation(s) {
+            s = 'notefganim' + s;
+            notefg = document.querySelector('#notefg');
+            notefg.className = notefg.className.replace(/(?:^|\s)notefg\S*(?!\S)/g, '');
+            notefg.className += ' ' + s;
+            notefg.parentNode.replaceChild(notefg.cloneNode(true), notefg);
+        }
+
+        function wamiStarted() {
+        }
+
+        function wamiFinished(result) {
+            result = result[0];
+            if (awaitingRecording) {
+                result = atob(result);
+                var buffer = new ArrayBuffer(result.length);
+                var intarray = new Uint8Array(buffer);
+                for(var i=0; i<result.length; i++)
+                    intarray[i] = result.charCodeAt(i);
+                beginPost(new Blob([buffer], { type: 'audio/wav' }));
+            } else {
+                console.log('Got recording from Wami after cancel');
+            }
+        }
+
+        function record() {
+            clearRecordingTimeout();
+            if (recorder != null) {
+                recorder.clear();
+                recorder.record();
+            } else if (wamiInitialized) {
+                Wami.startRecording(startedfn="wamiStarted", finishedfn="wamiFinished", failedfn="wamiFailed");
+            } else {
+                return;
+            }
+            startAnimation('record');
+            status('Recording...');
+            recordingTimeout = window.setTimeout(stopRecording, 5000);
+            awaitingRecording = true;
+        }
+
+        function getUserMediaSuccess(s) {
+            var context = new (window.webkitAudioContext || window.mozAudioContext)();
+            if (context.createMediaStreamSource) {
+                var mediaStreamSource = context.createMediaStreamSource(s);
+                recorder = new Recorder(mediaStreamSource);
+                wamiInitialized = false;
+                record();
+            } else {
+                tryWamiSetup();
+            }
+        }
+
+        function wamiSuccess() {
+            recorder = null;
+            wamiInitialized = true;
+            record();
+        }
+
+        function getUserMediaFail(e) {
+            tryWamiSetup();
+        };
+
+        function tryWamiSetup() {
+            try {
+                Wami.setup({id:"wami", onLoaded: wamiSuccess});
+            } catch (err) {
+                status('Browser not supported');
+                startAnimation('fail');
+                return false;
+            }
+            return true;
+        }
+
+        function startRecording() {
+            if (recorder == null && !wamiInitialized) {
+                if (navigator.getUserMedia) {
+                    var args = {audio: true};
+                    navigator.getUserMedia(args, getUserMediaSuccess, getUserMediaFail);
+                } else {
+                    tryWamiSetup();
+                }
+            } else {
+                record();
+            }
+            makeActive('record');
+        }
+
+        function clearRecordingTimeout() {
+            if (recordingTimeout != null)
+                window.clearTimeout(recordingTimeout);
+            recordingTimeout = null;
+        }
+
+        function stopRecording() {
+            clearRecordingTimeout();
+            if (recorder != null) {
+                recorder.stop();
+                recorder.exportWAV(beginPost);
+                recorder.clear();
+            } else if (wamiInitialized) {
+                Wami.stopRecording();
+            }
+            window.setTimeout(function () {awaitingRecording = false;}, 1000);
+            status('Uploading...');
+        }
+
+        function cancelRecord() {
+            makeActive('intro')
+            awaitingRecording = false;
+            clearRecordingTimeout();
+            if (recorder != null) {
+                recorder.stop();
+                recorder.clear();
+            } else if (wamiInitialized) {
+                Wami.stopRecording();
+            }
+            abortPost();
+        }
 
         window.onload = function() {
-            var status = document.querySelector('#status');
             setTimeout(makeActive, 100, 'intro');
-            function sendFile(file) {
-                var uri = "/index.php";
-                var xhr = new XMLHttpRequest();
-                var fd = new FormData();
 
-                xhr.open("POST", uri, true);
-                xhr.onreadystatechange = function() {
-                    if (xhr.readyState == 4 && xhr.status == 200) {
-                        imageLength = parseInt(xhr.responseText.substr(0, 8), 10);
-                        image = xhr.responseText.substr(8, imageLength);
-                        textLength = parseInt(xhr.responseText.substr(8+imageLength, 8), 10);
-                        text = xhr.responseText.substr(16+imageLength, textLength);
-                        status.innerText = text;
-                        document.querySelector('#middle').style.backgroundImage = 'url(\'' + image + '\')';
-                        document.querySelector('#form').style.height = document.querySelector('#record').scrollHeight;
-                        window.inProgressXHR = null;
-                    }
-                };
-                fd.append('myFile', file);
-                // Initiate a multipart/form-data upload
-                xhr.send(fd);
-                if (window.inProgressXHR != null)
-                    window.inProgressXHR.abort();
-                window.inProgressXHR = xhr;
+            note = document.querySelector('.note');
+            notefg = document.querySelector('#notefg');
+            noteshadow = document.querySelector('.noteshadow');
+            if (note.style.webkitBackgroundClip == null) {
+                note.style.color = 'transparent';
+                notefg.style.color = 'transparent';
+                note.style.clipPath = 'url(#c1)';
+                notefg.style.clipPath = 'url(#c1)';
             }
-
-            function animate(s) {
-                notefg = document.querySelector('#notefg');
-                notefg.className = notefg.className.replace(/(?:^|\s)notefg\S*(?!\S)/g, '');
-                notefg.className += ' ' + s;
-                notefg.parentNode.replaceChild(notefg.cloneNode(true), notefg);
-            }
-
-            function record() {
-                if (recorder != null) {
-                    recorder.clear();
-                    recorder.record();
-                    animate('notefganim');
-                    status.innerText = 'Recording...';
-                    if (recordingTimeout != null)
-                        window.clearTimeout(recordingTimeout);
-                    recordingTimeout = window.setTimeout(stopRecording, 5000);
-                }
-            }
-
-			var onSuccess = function(s) {
-				var context = new webkitAudioContext();
-				var mediaStreamSource = context.createMediaStreamSource(s);
-				recorder = new Recorder(mediaStreamSource);
-                record();
-			}
-
-			var onFail = function(e) {
-                status.innerText = 'Cannot record audio';
-                animate('notefgfailanim');
-			};
-
-            function startRecording() {
-                if (recorder == null) {
-                    if (navigator.getUserMedia) {
-                        navigator.getUserMedia(args, onSuccess, onFail);
-                    } else {
-                        status.innerText = 'Browser not supported';
-                        animate('notefgfailanim');
-                    }
-                } else {
-                    record();
-                }
-                makeActive('record');
-            }
-            window.startRecording = startRecording;
-
-            function stopRecording() {
-                if (recordingTimeout != null)
-                    window.clearTimeout(recordingTimeout);
-                recordingTimeout = null;
-                if (recorder != null) {
-                    recorder.stop();
-                    recorder.exportWAV(function(s) {
-                        sendFile(s);
-                    });
-                    recorder.clear();
-                }
-                status.innerText = 'Uploading...';
-            }
-
-            function cancelRecord() {
-                makeActive('intro')
-                if (recordingTimeout != null)
-                    window.clearTimeout(recordingTimeout);
-                recordingTimeout = null;
-                if (recorder != null) {
-                    recorder.stop();
-                    recorder.clear();
-                }
-                if (window.inProgressXHR != null) {
-                    window.inProgressXHR.abort();
-                    window.inProgressXHR = null;
-                }
-            }
-            window.cancelRecord = cancelRecord;
         }
         //-->
         </script>
@@ -406,7 +238,7 @@ if (isset($_FILES['myFile'])) {
                             <div class="form-title" style="margin-top: 15px;">What brings you to our network?</div>
                             <div class="submit-container">
                                 <input class="submit-button" type="button" value="I have an account" onclick="makeActive('signin');" style="margin-bottom:5px;"/><br/>
-                                <input class="submit-button" type="button" value="I'm in the building" onclick="window.startRecording();" style="margin-bottom:5px;"/><br/>
+                                <input class="submit-button" type="button" value="I'm in the building" onclick="startRecording();" style="margin-bottom:5px;"/><br/>
                                 <input class="submit-button" type="button" value="I'm feeling lucky" onclick="makeActive('lucky');"/>
                             </div>
                         </div>
@@ -423,9 +255,10 @@ if (isset($_FILES['myFile'])) {
                         </div>
                         <div class="form-screen subScreen" id="record">
                             <div class="form-title"><h2>Acoustic Authorization</h2></div>
-                            <div class="noteshadow">&#x266C;</div>
-                            <div class="note">&#x266C;</div>
-                            <div id="notefg">&#x266C;</div>
+                            <div class="noteshadow notefont">&#x266C;</div>
+                            <div class="note notefont">&#x266C;</div>
+                            <div id="notefg" class="notefont">&#x266C;</div>
+                            <div id="wami"></div>
                             <div class="form-title" id="status">Requesting permission to record</div>
                             <input class="submit-button" type="button" value="Cancel" onclick="cancelRecord();"/>
                         </div>
@@ -443,7 +276,7 @@ if (isset($_FILES['myFile'])) {
         </div>
         <svg height="0">
           <clipPath id="c1" clipPathUnits="userSpaceOnUse">
-            <text x="0" y="140" font-family="'Helvetica Neue',Helvetica,sans-serif" font-size="140">&#x266C;</text>
+            <text x="0" y="160" class="notefont">&#x266C;</text>
           </clipPath>
         </svg>
     </body>
