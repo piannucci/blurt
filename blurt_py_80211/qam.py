@@ -2,24 +2,35 @@
 import numpy as np
 import util
 
-bpsk  = np.array([-1, 1]) * 1.
-qpsk  = np.array([-1, 1]) / 2.**.5
-qam16 = np.array([-3, -1, 3, 1]) / 10.**.5
-qam64 = np.array([-7, -5, -1, -3, 7, 5, 1, 3]) / 42.**.5
+def grayRevToBinary(x, n):
+    y = 0*x
+    for i in xrange(n):
+        y <<= 1
+        y |= x&1
+        x >>= 1
+    shift = 1
+    while shift<n:
+        y ^= y >> shift
+        shift<<=1
+    return y
 
-qpsk  = qpsk [np.arange( 4) & 1] * 1j + qpsk [np.arange( 4) >> 1]
-qam16 = qam16[np.arange(16) & 3] * 1j + qam16[np.arange(16) >> 2]
-qam64 = qam64[np.arange(64) & 7] * 1j + qam64[np.arange(64) >> 3]
+def qam_constellation(Nbpsc):
+    scale = 1.
+    n = 1
+    if Nbpsc != 1:
+        # want variance = .5 per channel
+        # in fact, var{ 2 range(2^{Nbpsc/2}) - const } = (2^Nbpsc - 1) / 3
+        scale = ( 1.5 / ((1<<Nbpsc) - 1) ) ** .5
+        n = Nbpsc >> 1
+    symbols = (2*grayRevToBinary(np.arange(1<<n), n) + 1 - (1<<n)) * scale
+    if Nbpsc != 1:
+        symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
+    return symbols
 
-bpsk  = bpsk [util.rev(np.arange(1<<1), 1)]
-qpsk  = qpsk [util.rev(np.arange(1<<2), 2)]
-qam16 = qam16[util.rev(np.arange(1<<4), 4)]
-qam64 = qam64[util.rev(np.arange(1<<6), 6)]
-
-bpsk = (1, bpsk)
-qpsk = (2, qpsk)
-qam16 = (4, qam16)
-qam64 = (6, qam64)
+bpsk = (1, qam_constellation(1))
+qpsk = (2, qam_constellation(2))
+qam16 = (4, qam_constellation(4))
+qam64 = (6, qam_constellation(6))
 
 def encode(interleaved_bits, rate):
     return rate.constellation[util.shiftin(interleaved_bits, rate.Nbpsc)]
