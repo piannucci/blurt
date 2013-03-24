@@ -25,7 +25,7 @@ float logaddexp(float x, float y)
 Constellation::Constellation(int Nbpsc) : Nbpsc(Nbpsc), symbols(1<<Nbpsc) {
 }
 
-void Constellation::map(std::vector<bool> &input, std::vector<complex> &output) {
+void Constellation::map(const std::vector<bool> &input, std::vector<complex> &output) {
     output.resize(input.size()/Nbpsc);
     int j=0;
     for (int i=0; i<output.size(); i++) {
@@ -36,7 +36,7 @@ void Constellation::map(std::vector<bool> &input, std::vector<complex> &output) 
     }
 }
 
-void Constellation::demap(std::vector<complex> &input, float dispersion, std::vector<int64_t> &output) {
+void Constellation::demap(const std::vector<complex> &input, float dispersion, std::vector<int> &output) {
     output.resize(input.size() * Nbpsc);
     std::vector<float> ll(1<<Nbpsc);
     const float minus_log_pi_dispersion = -log(M_PI * dispersion);

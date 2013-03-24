@@ -7,6 +7,6 @@ protected:
 public:
     int Nbpsc;
     std::vector<complex> symbols;
-    void map(std::vector<bool> &input, std::vector<complex> &output);
-    void demap(std::vector<complex> &input, float dispersion, std::vector<int64_t> &output);
+    void map(const std::vector<bool> &input, std::vector<complex> &output);
+    void demap(const std::vector<complex> &input, float dispersion, std::vector<int> &output);
 };

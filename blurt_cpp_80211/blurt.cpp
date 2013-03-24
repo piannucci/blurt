@@ -1,10 +1,10 @@
 #include <iostream>
 #include "qam.h"
+#include "cc.h"
 #include <stdint.h>
 
 int main(int argc, char **argp, char **envp) {
     QAM qam(6);
-    std::vector<complex> input(100);
     complex input_data[100] = {
         complex( 0.87351053,-2.95107652), complex( 0.60034215,+0.14694272), complex(-1.19640623,-0.47464486), complex(-2.02080161,-1.41166226),
         complex( 1.03313946,-0.19951225), complex( 0.65292322,-0.99240952), complex( 0.39455197,+0.88894462), complex(-2.32675700,+0.75269158),
@@ -30,14 +30,28 @@ int main(int argc, char **argp, char **envp) {
         complex( 1.20419633,-1.06219036), complex( 0.05175541,-0.21549287), complex( 1.45470638,-0.72627929), complex(-0.18786357,+0.26373133),
         complex(-0.21134584,+0.51017608), complex( 1.49820809,-2.33701051), complex( 0.14103132,-0.52968968), complex(-1.14697371,-0.26542972),
         complex(-1.02078161,-1.36819908), complex( 1.58809995,-0.37136348), complex( 1.00979013,-1.36779781), complex( 0.13537942,+0.32244865),
-        complex( 0.68138584,-0.63996865), complex( 1.12028303,+0.68770766), complex( 0.63475950,+2.17537916), complex(-0.11605853,+1.84150574)};
-    input.assign(input_data, input_data+100);
-    //std::vector<int64_t> output;
+        complex( 0.68138584,-0.63996865), complex( 1.12028303,+0.68770766), complex( 0.63475950,+2.17537916), complex(-0.11605853,+1.84150574)
+    };
+    std::vector<complex> input;
+    input.assign(input_data, input_data+sizeof(input_data)/sizeof(input_data[0]));
+    //std::vector<int> output;
     //qam.demap(input, 1.f, output);
-    //for (int i=0; i<output.size(); i++) {
-    //    std::cout << output[i] << " ";
-    //}
-    //std::cout << std::endl;
+    bool bits[] = {1,0,0,1,0,0,1,1,1,1,1,0,0,0,0,0,0};
+    std::vector<bool> inputBits;
+    std::vector<bool> outputBits;
+    inputBits.assign(bits, bits+sizeof(bits)/sizeof(bits[0]));
+    ConvolutionalCode cc(7, 0133, 0171);
+    cc.encode(inputBits, outputBits);
+    std::vector<int> inputLL(outputBits.size());
+    std::vector<bool> recoveredBits;
+    for (int i=0; i<outputBits.size(); i++) {
+        inputLL[i] = (int)outputBits[i] * 2 - 1;
+    }
+    cc.decode(inputLL, inputBits.size()-6, recoveredBits);
+    for (int i=0; i<recoveredBits.size(); i++) {
+        std::cout << recoveredBits[i] << " ";
+    }
+    std::cout << std::endl;
 
     return 0;
 }
