@@ -30,14 +30,10 @@ class ConvolutionalCode:
         self.output_map_1      = np.uint8(1 & (util.mul(self.g0, np.arange(1<<self.nu)) >> (self.nu-1)))
         self.output_map_2      = np.uint8(1 & (util.mul(self.g1, np.arange(1<<self.nu)) >> (self.nu-1)))
         self.states            = np.arange(1<<self.nu)
-        self.state_map         = (self.states >> 1)[:,np.newaxis] | (np.array([1,0])[np.newaxis,:] << (self.nu-1))
-        self.state_inv_map     = np.array([np.where(self.state_map==i)[0] for i in xrange(1<<self.nu)])
-        self.state_inv_map_tag = np.array([np.where(self.state_map==i)[1] for i in xrange(1<<self.nu)])
-        self.output_map_1_soft = (1 & (util.mul(self.g0, self.state_map) >> (self.nu-1))) * 2 - 1
-        self.output_map_2_soft = (1 & (util.mul(self.g1, self.state_map) >> (self.nu-1))) * 2 - 1
-        self.output_map_1_soft = self.output_map_1_soft[self.state_inv_map, self.state_inv_map_tag][np.newaxis,...]
-        self.output_map_2_soft = self.output_map_2_soft[self.state_inv_map, self.state_inv_map_tag][np.newaxis,...]
-        self.state_inv_map_out = np.dstack((1^self.state_inv_map_tag,self.state_inv_map))
+        self.state_inv_map     = ((np.arange(1<<self.nu) << 1) & ((1<<self.nu)-1))[:,np.newaxis] + np.array([0,1])[np.newaxis,:]
+        self.state_inv_map_tag = np.tile(np.arange(1<<self.nu)[:,np.newaxis] >> (self.nu-1), (1,2))
+        self.output_map_1_soft = self.output_map_1.astype(int)[np.newaxis,:] * 2 - 1
+        self.output_map_2_soft = self.output_map_2.astype(int)[np.newaxis,:] * 2 - 1
     def encode(self, input):
         """Encode a sequence of input bits."""
         # Equivalent to the following Python code:
@@ -71,7 +67,7 @@ class ConvolutionalCode:
         #        return zeros(length, int)
         #    scores = zeros(1<<nu, int64)
         #    bt = [None] * N
-        #    x = input[0:2*N:2,newaxis,newaxis]*output_map_1_soft + input[1:2*N:2,newaxis,newaxis]*output_map_2_soft
+        #    x = input[0:2*N:2,newaxis]*output_map_1_soft + input[1:2*N:2,newaxis]*output_map_2_soft
         #    for k in xrange(N):
         #        cost = scores[state_inv_map] + x[k]
         #        idxs = cost.argmax(1)
@@ -80,16 +76,17 @@ class ConvolutionalCode:
         #    msg = empty(N, uint8)
         #    i = scores[:2].argmax()
         #    for k in xrange(N-1, -1, -1):
-        #        msg[k], i = state_inv_map_out[i,bt[k][i]]
+        #        msg[k] = state_inv_map_tag[i,bt[k][i]]
+        #        i = state_inv_map[i,bt[k][i]]
         #    return msg
-        nu, state_inv_map, state_inv_map_out = self.nu, self.state_inv_map, self.state_inv_map_out
+        nu, state_inv_map, state_inv_map_tag = self.nu, self.state_inv_map, self.state_inv_map_tag
         N = int(length+nu-1)
         M = 1<<nu
         if input.size < N*2:
             return np.zeros(length, int)
         bt = np.empty((N, M), np.uint8);
-        x = input[0:2*N:2,np.newaxis,np.newaxis]*self.output_map_1_soft + \
-            input[1:2*N:2,np.newaxis,np.newaxis]*self.output_map_2_soft
+        x = input[0:2*N:2,np.newaxis]*self.output_map_1_soft + \
+            input[1:2*N:2,np.newaxis]*self.output_map_2_soft
         msg = np.empty(N, np.uint8)
         code = """
         int64_t *cost = new int64_t [M*2];
@@ -98,8 +95,8 @@ class ConvolutionalCode:
             scores[i] = 0;
         for (int k=0; k<N; k++) {
             for (int i=0; i<M; i++) {
-                cost[2*i+0] = scores[state_inv_map(i, 0)] + x(k, i, 0);
-                cost[2*i+1] = scores[state_inv_map(i, 1)] + x(k, i, 1);
+                cost[2*i+0] = scores[state_inv_map(i, 0)] + x(k, i);
+                cost[2*i+1] = scores[state_inv_map(i, 1)] + x(k, i);
             }
             for (int i=0; i<M; i++) {
                 int a, b;
@@ -112,13 +109,13 @@ class ConvolutionalCode:
         int i = (scores[0] < scores[1]) ? 1 : 0;
         for (int k=N-1; k>=0; k--) {
             int j = bt(k, i);
-            msg(k) = state_inv_map_out(i,j,0);
-            i = state_inv_map_out(i,j,1);
+            msg(k) = state_inv_map_tag(i,j);
+            i = state_inv_map(i,j);
         }
         delete [] cost;
         delete [] scores;
         """
-        weave.inline(code, ['N','M','state_inv_map', 'x','bt','state_inv_map_out', 'msg'], type_converters=converters.blitz)
+        weave.inline(code, ['N','M','state_inv_map', 'x','bt','state_inv_map_tag', 'msg'], type_converters=converters.blitz)
         return msg
     def puncture(self, input, m):
         return input[np.where(np.tile(m, (input.size+m.size-1)/m.size)[:input.size])]
