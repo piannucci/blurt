@@ -21,9 +21,8 @@ qpsk = (2, qpsk)
 qam16 = (4, qam16)
 qam64 = (6, qam64)
 
-def encode(interleaved_bits, rate, Nsc):
-    result = rate.constellation[util.shiftin(interleaved_bits, rate.Nbpsc)]
-    return result.reshape(result.size/Nsc, Nsc)
+def encode(interleaved_bits, rate):
+    return rate.constellation[util.shiftin(interleaved_bits, rate.Nbpsc)]
 
 def demapper(data, constellation, min_dist, dispersion, n):
     squared_distance = np.abs(constellation[np.newaxis,:] - data[:,np.newaxis])**2
@@ -37,4 +36,4 @@ def demapper(data, constellation, min_dist, dispersion, n):
         idx1 = np.where(j & (1<<i))[0]
         ll0[:,i] = np.logaddexp.reduce(ll[:,idx0], 1)
         ll1[:,i] = np.logaddexp.reduce(ll[:,idx1], 1)
-    return np.int64(np.clip(10.*(ll1-ll0), -1e4, 1e4))
+    return np.int64(np.clip(10.*(ll1-ll0), -1e4, 1e4)).flatten()

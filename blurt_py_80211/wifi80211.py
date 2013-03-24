@@ -43,7 +43,8 @@ class WiFi_802_11:
         coded = code.encode(scrambled)
         punctured = code.puncture(coded, rate.puncturingMatrix)
         interleaved = interleaver.interleave(punctured, rate.Ncbps, rate.Nbpsc)
-        return qam.encode(interleaved, rate, ofdm.format.Nsc)
+        mapped = qam.encode(interleaved, rate)
+        return mapped.reshape(mapped.size/ofdm.format.Nsc, ofdm.format.Nsc)
 
     def encode(self, input_octets, rate_index):
         service_bits = np.zeros(16, int)
@@ -257,7 +258,7 @@ class WiFi_802_11:
                         initializedPlot = True
                     drawingCalls.append((lambda d: lambda: pl.scatter(d.real, d.imag, c=np.arange(data.size)))(data))
                 ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
-                demapped_bits.append(ll.flatten())
+                demapped_bits.append(ll)
             j += nfft+ncp
             i += 1
         if len(demapped_bits) == 0:
