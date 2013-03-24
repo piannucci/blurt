@@ -1,6 +1,7 @@
 #include <iostream>
 #include "qam.h"
 #include "cc.h"
+#include "crc.h"
 #include <stdint.h>
 
 int main(int argc, char **argp, char **envp) {
@@ -37,19 +38,22 @@ int main(int argc, char **argp, char **envp) {
     //std::vector<int> output;
     //qam.demap(input, 1.f, output);
     bool bits[] = {1,0,0,1,0,0,1,1,1,1,1,0,0,0,0,0,0};
-    std::vector<bool> inputBits;
-    std::vector<bool> outputBits;
+    bitvector inputBits;
+    bitvector outputBits;
     inputBits.assign(bits, bits+sizeof(bits)/sizeof(bits[0]));
     ConvolutionalCode cc(7, 0133, 0171);
     cc.encode(inputBits, outputBits);
     std::vector<int> inputLL(outputBits.size());
-    std::vector<bool> recoveredBits;
+    bitvector recoveredBits;
     for (int i=0; i<outputBits.size(); i++) {
         inputLL[i] = (int)outputBits[i] * 2 - 1;
     }
     cc.decode(inputLL, inputBits.size()-6, recoveredBits);
-    for (int i=0; i<recoveredBits.size(); i++) {
-        std::cout << recoveredBits[i] << " ";
+    CRC crc;
+    bitvector fcsBits;
+    crc.FCS(inputBits, fcsBits);
+    for (int i=0; i<fcsBits.size(); i++) {
+        std::cout << (int)fcsBits[i] << ", ";
     }
     std::cout << std::endl;
 

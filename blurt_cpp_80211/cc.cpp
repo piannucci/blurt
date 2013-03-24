@@ -40,7 +40,7 @@ ConvolutionalCode::ConvolutionalCode(int nu, int g0, int g1) : nu(nu) {
     }
 }
 
-void ConvolutionalCode::encode(const std::vector<bool> &input, std::vector<bool> &output) {
+void ConvolutionalCode::encode(const bitvector &input, bitvector &output) {
     int N = input.size();
     output.resize(N*2);
     uint32_t sh = 0;
@@ -51,14 +51,14 @@ void ConvolutionalCode::encode(const std::vector<bool> &input, std::vector<bool>
     }
 }
 
-void ConvolutionalCode::decode(const std::vector<int> &input, int length, std::vector<bool> &output) {
+void ConvolutionalCode::decode(const std::vector<int> &input, int length, bitvector &output) {
     int N = length+nu-1;
     int M = 1<<nu;
     if (input.size() < N*2) {
         output.resize(0);
         return;
     }
-    std::vector<bool> bt(N*M);
+    bitvector bt(N*M);
     output.resize(N);
     std::vector<int64_t> cost(M*2);
     std::vector<int64_t> scores(M, 0);
