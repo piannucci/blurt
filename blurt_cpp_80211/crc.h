@@ -1,3 +1,5 @@
+#ifndef CRC_H
+#define CRC_H
 #include "blurt.h"
 
 class CRC {
@@ -15,3 +17,4 @@ public:
     void FCS(const bitvector &calculationFields, bitvector &output);
     bool checkFCS(const bitvector &frame);
 };
+#endif

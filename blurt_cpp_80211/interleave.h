@@ -11,7 +11,7 @@ void interleave(const std::vector<T> &input, int Ncbps, int Nbpsc, bool reverse,
     else
         interleave_inverse_permutation(Ncbps, Nbpsc, p);
     int N = input.size();
-    output.resize(input.size);
+    output.resize(input.size());
     for (int i=0; i<N; i+=Ncbps)
         for (int j=0; j<Ncbps; j++)
             output[i+j] = input[i+p[j]];

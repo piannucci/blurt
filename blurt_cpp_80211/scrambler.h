@@ -1,3 +1,5 @@
+#ifndef SCRAMBLER_H
+#define SCRAMBLER_H
 #include "blurt.h"
 
 class Scrambler {
@@ -8,3 +10,4 @@ public:
     int next();
     static void scramble(const bitvector &input, int multipleOf, bitvector &output, int scramblerState=0x7f);
 };
+#endif

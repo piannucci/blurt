@@ -1,3 +1,5 @@
+#ifndef CC_H
+#define CC_H
 #include "blurt.h"
 #include <stdint.h>
 
@@ -11,3 +13,4 @@ public:
     void encode(const bitvector &input, bitvector &output);
     void decode(const std::vector<int> &input, int length, bitvector &output);
 };
+#endif

@@ -32,7 +32,7 @@ PuncturingMask::PuncturingMask(int numerator, int denominator)
         ASSIGN_VECTOR(mask, matrix_2_1);
 }
 
-void PuncturingMask::puncture(const std::vector<bool> &input, std::vector<bool> &output) {
+void PuncturingMask::puncture(const bitvector &input, bitvector &output) const {
     int count = 0;
     int N = input.size(), M = mask.size();
     for (int i=0; i<N; i++)
@@ -44,7 +44,7 @@ void PuncturingMask::puncture(const std::vector<bool> &input, std::vector<bool> 
             output[j++] = input[i];
 }
 
-void PuncturingMask::depuncture(const std::vector<int> &input, std::vector<int> &output) {
+void PuncturingMask::depuncture(const std::vector<int> &input, std::vector<int> &output) const {
     int N = input.size(), M = mask.size();
     int m = 0;
     for (int i=0; i<M; i++)

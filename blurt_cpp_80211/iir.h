@@ -1,3 +1,5 @@
+#ifndef IIR_H
+#define IIR_H
 #import "blurt.h"
 
 template <class T>
@@ -10,7 +12,7 @@ private:
     T *y_hist;
 public:
     IIRFilter(int order, float *alpha, float *beta, float gamma) :
-        order(order), alpha(new float [order]), beta(new float [order]), gamma(gamma),
+        order(order), alpha(new float [order+1]), beta(new float [order]), gamma(gamma),
         x_hist(new T [order]), y_hist(new T [order])
     {
         for (int i=0; i<order; i++) {
@@ -58,3 +60,4 @@ public:
         delete [] y;
     }
 };
+#endif

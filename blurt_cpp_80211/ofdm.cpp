@@ -74,6 +74,9 @@ void stitch(const std::vector<std::vector<complex> > &input, std::vector<complex
     }
 }
 
+OFDM::OFDM(const OFDMFormat &format) : format(format) {
+}
+
 void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &output) {
     PilotPolarity pilotPolarity;
     std::vector<std::vector<complex> > output_chunks;

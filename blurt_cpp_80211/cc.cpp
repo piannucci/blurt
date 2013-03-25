@@ -1,26 +1,5 @@
 #include "cc.h"
-
-int rev(int x, int n) {
-    int y = 0;
-    for (int i=0; i<n; i++) {
-        y <<= 1;
-        y |= x&1;
-        x >>= 1;
-    }
-    return y;
-}
-
-int mul(int a, int b) {
-    int c = 0;
-    int i = 0;
-    while (b) {
-        if (b&1)
-            c ^= a << i;
-        b >>= 1;
-        i += 1;
-    }
-    return c;
-}
+#include "util.h"
 
 ConvolutionalCode::ConvolutionalCode(int nu, int g0, int g1) : nu(nu) {
     g0 = rev(g0, nu);
