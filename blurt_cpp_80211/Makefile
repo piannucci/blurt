@@ -3,7 +3,8 @@ CFLAGS=-c -I/opt/local/include -O3 -g
 LDFLAGS=-L/opt/local/lib -O3 -g
 SOURCES=wifi80211.cpp constellation.cpp qam.cpp blurt.cpp cc.cpp \
 		puncture.cpp crc.cpp util.cpp interleave.cpp scrambler.cpp \
-		fft.cpp iir.cpp upsample.cpp ofdm.cpp rate.cpp
+		fft.cpp iir.cpp upsample.cpp ofdm.cpp rate.cpp kalman.cpp \
+		chunk.cpp wave.cpp
 OBJECTS=$(SOURCES:.cpp=.o)
 
 all: blurt

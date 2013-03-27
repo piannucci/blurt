@@ -5,8 +5,7 @@
 #include "interleave.h"
 #include "fft.h"
 #include <limits>
-
-static const float pi = 3.141592653589793238462f;
+#include "kalman.h"
 
 WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
 {
@@ -234,9 +233,159 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     float var_n = var_input / (float(snr * Nsc_used) / Nsc + 1);
     float var_x = var_input - var_n;
     float var_y = 2*var_n*var_x + var_n*var_n;
-    uncertainty = atan(sqrt(var_y) / var_x) / (2*pi*N_lts_period/(nfft+ncp)) / sqrt(nfft);
+    uncertainty = atan(sqrt(var_y) / var_x) * (nfft+ncp) / N_lts_period / sqrt(nfft);
     var_ni = var_x/Nsc_used/snr;
     offset += N_lts_reps * nfft;
 }
 
+void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float uncertainty, float var_n,
+                           std::vector<int> &coded_bits, int &length_bits, int &offset) {
+    int nfft = ofdm.format.nfft;
+    int ncp = ofdm.format.ncp;
+    KalmanPilotTracker kalman(uncertainty, var_n);
+    PilotPolarity pilotPolarity;
+    std::vector<int> demapped_bits;
+    offset += ncp;
+    int i = 0;
+    int length_symbols = 0, length_coded_bits;
+    float dispersion;
+    Rate &r_est = rates[0];
+    while (input.size()-offset > nfft && i <= length_symbols) {
+        std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
+        fft(&*sym.begin(), nfft, 1);
+        for (int j=0; j<nfft; j++)
+            sym[j] = sym[j] * G[j];
+        std::vector<complex> data(ofdm.format.Nsc);
+        for (int j=0; j<data.size(); j++)
+            data[j] = sym[ofdm.format.dataSubcarriers[j]];
+        std::vector<complex> pilots(ofdm.format.pilotSubcarriers.size());
+        complex pilot_sum = 0;
+        for (int j=0; j<pilots.size(); j++) {
+            pilots[j] = sym[ofdm.format.pilotSubcarriers[j]] * pilotPolarity.next() * ofdm.format.pilotTemplate[j];
+            pilot_sum += pilots[j];
+        }
+        complex kalman_u;
+        kalman.update(pilot_sum, kalman_u);
+        for (int j=0; j<data.size(); j++)
+            data[j] = data[j] * kalman_u;
+        for (int j=0; j<pilots.size(); j++)
+            pilots[j] = pilots[j] * kalman_u;
+        if (i==0) {
+            // signal
+            std::vector<int> signal_bits(data.size());
+            for (int j=0; j<data.size(); j++)
+                signal_bits[j] = (real(data[j]) > 0) ? 1 : -1;
+            std::vector<int> signal_bits_deinterleaved;
+            interleave(signal_bits, ofdm.format.Nsc, 1, true, signal_bits_deinterleaved);
+            bitvector scrambled_plcp_estimate, plcp_estimate;
+            code.decode(signal_bits_deinterleaved, 18, scrambled_plcp_estimate);
+            Scrambler::scramble(scrambled_plcp_estimate, ofdm.format.Nsc/2, plcp_estimate, 0);
+            int parity = 0;
+            for (int j=0; j<plcp_estimate.size(); j++)
+                parity ^= plcp_estimate[j] & 1;
+            parity = (parity == 0);
+            if (!parity) {
+                coded_bits.clear();
+                length_bits = 0;
+                return;
+            }
+            std::vector<int> plcp_estimate_shifted_in;
+            plcp_estimate.resize(18);
+            shiftin(plcp_estimate, 18, plcp_estimate_shifted_in);
+            int plcp_estimate_value = plcp_estimate_shifted_in[0];
+            int encoding_estimate = rev(plcp_estimate_value & 0xf, 4);
+            int rate_estimate;
+            for (rate_estimate=0; rate_estimate<rates.size(); rate_estimate++)
+                if (rates[rate_estimate].encoding == encoding_estimate)
+                    break;
+            if (rate_estimate == rates.size()) {
+                coded_bits.clear();
+                length_bits = 0;
+                return;
+            }
+            r_est = rates[rate_estimate];
+            int Ncbps = r_est.Ncbps;
+            int length_octets = (plcp_estimate_value >> 5) & 0xfff;
+            length_bits = length_octets * 8;
+            length_coded_bits = (length_bits+16+6)*2;
+            length_symbols = (length_coded_bits+Ncbps-1) / Ncbps;
+            bitvector signal_bits_encoded, signal_bits_interleaved;
+            code.encode(scrambled_plcp_estimate, signal_bits_encoded);
+            interleave(signal_bits_encoded, ofdm.format.Nsc, 1, false, signal_bits_interleaved);
+            std::vector<complex> residual;
+            rates[0].constellation.map(signal_bits_interleaved, residual);
+            for (int j=0; j<residual.size(); j++)
+                residual[j] = residual[j] - data[j];
+            dispersion = var(residual);
+        } else {
+            std::vector<int> ll;
+            r_est.constellation.demap(data, dispersion, ll);
+            demapped_bits.insert(demapped_bits.end(), ll.begin(), ll.end());
+        }
+        offset += nfft+ncp;
+        i++;
+    }
+    if (demapped_bits.size() == 0) {
+        coded_bits.clear();
+        length_bits = 0;
+        return;
+    }
+    std::vector<int> punctured_bits_estimate;
+    interleave(demapped_bits, r_est.Ncbps, r_est.Nbpsc, true, punctured_bits_estimate);
+    r_est.puncturingMask.depuncture(punctured_bits_estimate, coded_bits);
+    if (coded_bits.size() < length_coded_bits) {
+        coded_bits.clear();
+        length_bits = 0;
+        return;
+    }
+    coded_bits.resize(length_coded_bits);
+}
 
+void WiFi80211::decodeFromLLR(const std::vector<int> &input, int length_bits, bitvector &output) {
+    bitvector scrambled_bits;
+    code.decode(input, length_bits+16, scrambled_bits);
+    scrambled_bits.resize(length_bits+16);
+    Scrambler::scramble(scrambled_bits, 0, output, 0x5d);
+}
+
+void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResult> &output) {
+    output.clear();
+    int endIndex = 0;
+    std::vector<complex> working_buffer;
+    working_buffer.reserve(input.size());
+    int minSize = ofdm.format.preambleLength + ofdm.format.ncp + ofdm.format.nfft;
+    std::vector<int> startIndices;
+    synchronize(input, startIndices);
+    for (int i=0; i<startIndices.size(); i++) {
+        int startIndex = startIndices[i];
+        if (startIndex < endIndex) // we already successfully decoded this packet
+            continue;
+        working_buffer.assign(input.begin()+startIndex, input.end());
+        if (working_buffer.size() <= minSize)
+            continue;
+        std::vector<complex> G;
+        float uncertainty, var_ni, lsnr;
+        int offset = 0;
+        train(working_buffer, G, uncertainty, var_ni, offset, lsnr);
+        if (G.size() == 0)
+            continue;
+        std::vector<int> llr;
+        int length_bits;
+        demodulate(working_buffer, G, uncertainty, var_ni, llr, length_bits, offset);
+        if (llr.size() == 0)
+            continue;
+        bitvector output_bits;
+        decodeFromLLR(llr, length_bits, output_bits);
+        output_bits.erase(output_bits.begin(), output_bits.begin()+16);
+        if (!crc.checkFCS(output_bits))
+            continue;
+        output_bits.resize(output_bits.size()-32);
+        DecodeResult result;
+        shiftin(output_bits, 8, result.payload);
+        endIndex = startIndex + offset;
+        result.startIndex = startIndex;
+        result.endIndex = endIndex;
+        result.lsnr = lsnr;
+        output.push_back(result);
+    }
+}
