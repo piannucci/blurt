@@ -99,7 +99,7 @@ void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> 
 
 void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<complex> &G, float &snr, float &lsnr_estimate) {
     std::vector<complex> lts_freq(lts), Y(ofdm.format.nfft, 0), S_Y(ofdm.format.nfft, 0);
-    complex *p = &*lts_freq.begin();
+    complex *p = &lts_freq[0];
     for (int i=0; i<ofdm.format.ts_reps; i++) {
         fft(p, ofdm.format.nfft);
         for (int j=0; j<ofdm.format.nfft; j++) {
@@ -118,7 +118,7 @@ void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<comple
     // noise estimation via residuals
     complex resid_sum = 0;
     float resid_sum_sq = 0;
-    p = &*lts_freq.begin();
+    p = &lts_freq[0];
     int count = 0;
     for (int i=0; i<ofdm.format.ts_reps; i++) {
         for (int j=0; j<ofdm.format.nfft; j++) {
@@ -174,7 +174,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     if (input.size() < offset + N_lts_period*N_lts_reps)
         return;
     std::vector<complex> lts(input.begin() + offset, input.begin() + offset + N_lts_period*N_lts_reps);
-    complex *p = &*lts.begin();
+    complex *p = &lts[0];
     for (int i=0; i<N_lts_reps; i++)
     {
         fft(p, nfft);
@@ -252,7 +252,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     Rate &r_est = rates[0];
     while (input.size()-offset > nfft && i <= length_symbols) {
         std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
-        fft(&*sym.begin(), nfft);
+        fft(&sym[0], nfft);
         for (int j=0; j<nfft; j++)
             sym[j] = sym[j] * G[j];
         std::vector<complex> data(ofdm.format.Nsc);

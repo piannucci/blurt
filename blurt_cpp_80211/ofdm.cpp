@@ -6,7 +6,7 @@ void trainingSequenceFromFreq(const std::vector<complex> &ts_freq, int reps, int
     int nfft = ts_freq.size();
     int tilesNeeded = (ncp*reps + nfft-1) / nfft + reps + 1; // +1 for cross-fade
     std::vector<complex> ts(ts_freq);
-    ifft(&*ts.begin(), nfft);
+    ifft(&ts[0], nfft);
     int start = (-(ncp*reps) % nfft + nfft) % nfft; // mod with round towards negative infinity
     ts.reserve(nfft*tilesNeeded); // make sure no reallocations while tiling
     for (int i=1; i<tilesNeeded; i++)
@@ -91,7 +91,7 @@ void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &outpu
         complex polarity = pilotPolarity.next();
         for (int j=0; j<format.pilotSubcarriers.size(); j++)
             symbol[format.pilotSubcarriers[j]] = format.pilotTemplate[j] * polarity;
-        ifft(&*symbol.begin(), format.nfft);
+        ifft(&symbol[0], format.nfft);
         symbol.reserve(format.nfft*tilesNeeded);
         for (int i=1; i<tilesNeeded; i++)
             symbol.insert(symbol.end(), symbol.begin(), symbol.begin() + format.nfft);
