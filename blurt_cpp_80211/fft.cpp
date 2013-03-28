@@ -11,14 +11,14 @@ typedef float real;
 
 class FFT {
 private:
-    size_t n, stride;
+    size_t n;
     bool forward;
     int *rev_idx, *rev_idx_end;
     complex *factors;
     real scale;
     inline void rev_in_place(complex *x);
 public:
-    FFT(size_t n, size_t stride, bool forward);
+    FFT(size_t n, bool forward);
     ~FFT();
     void transform(complex *x);
 };
@@ -63,7 +63,7 @@ static inline complex omega(int e, int logn, bool forward)
     return complex(cos(theta), sin(theta));
 }
 
-FFT::FFT(size_t n, size_t stride, bool forward) : n(n), stride(stride), forward(forward)
+FFT::FFT(size_t n, bool forward) : n(n), forward(forward)
 {
     rev_idx = new int [2 * (1<<n)];
     rev_idx_end = rev_idx;
@@ -72,8 +72,8 @@ FFT::FFT(size_t n, size_t stride, bool forward) : n(n), stride(stride), forward(
         int j = rev(i, n);
         if (j>i)
         {
-            *rev_idx_end++ = i*stride;
-            *rev_idx_end++ = j*stride;
+            *rev_idx_end++ = i;
+            *rev_idx_end++ = j;
         }
     }
     factors = new complex [1<<(n-1)];
@@ -102,21 +102,21 @@ void FFT::transform(complex *x)
         complex *x0 = x, *x1 = x;
         for (int i=0; i<imax; i++)
         {
-            x1 += jmax*stride;
+            x1 += jmax;
             complex factor = factors[i];
             for (int j=0; j<jmax; j++)
             {
                 complex _x1 = *x1, y1 = (*x0-_x1) * factor;
                 TWIDDLE_SCALE(y1);
                 *x0 += _x1; *x1 = y1;
-                x0 += stride; x1 += stride;
+                x0 += 1; x1 += 1;
             }
             x0 = x1;
         }
     }
 
     int jmax = 1<<(n-1);
-    complex *x0 = x, *x1 = x + jmax*stride;
+    complex *x0 = x, *x1 = x + jmax;
     if (!forward)
     {
         IFFT_GET_SCALE(scale);
@@ -125,7 +125,7 @@ void FFT::transform(complex *x)
             complex _x1 = *x1, y0 = (*x0+_x1), y1 = (*x0-_x1);
             IFFT_SCALE(y0, n, scale); IFFT_SCALE(y1, n, scale);
             *x0 = y0; *x1 = y1;
-            x0 += stride; x1 += stride;
+            x0 += 1; x1 += 1;
         }
     }
     else
@@ -134,25 +134,29 @@ void FFT::transform(complex *x)
         {
             complex _x1 = *x1, y1 = (*x0-_x1);
             *x0 += _x1; *x1 = y1;
-            x0 += stride; x1 += stride;
+            x0 += 1; x1 += 1;
         }
     }
 }
 
-static std::map<std::pair<size_t, size_t>, FFT *> fft_objects;
-
-void fft(complex *x, size_t n, size_t stride) {
-    std::pair<size_t, size_t> params(n, stride);
-    if (fft_objects.find(params) == fft_objects.end())
-        fft_objects[params] = new FFT(n, stride, true);
-    fft_objects[params]->transform(x);
+int log2(size_t n) {
+    int logn;
+    for (logn=0; n>1; n>>=1, logn++);
+    return logn;
 }
 
-static std::map<std::pair<size_t, size_t>, FFT *> ifft_objects;
+std::map<size_t, FFT *> fft_objects;
 
-void ifft(complex *x, size_t n, size_t stride) {
-    std::pair<size_t, size_t> params(n, stride);
-    if (ifft_objects.find(params) == ifft_objects.end())
-        ifft_objects[params] = new FFT(n, stride, false);
-    ifft_objects[params]->transform(x);
+void fft(complex *x, size_t n) {
+    if (fft_objects.find(n) == fft_objects.end())
+        fft_objects[n] = new FFT(log2(n), true);
+    fft_objects[n]->transform(x);
+}
+
+std::map<size_t, FFT *> ifft_objects;
+
+void ifft(complex *x, size_t n) {
+    if (ifft_objects.find(n) == ifft_objects.end())
+        ifft_objects[n] = new FFT(log2(n), false);
+    ifft_objects[n]->transform(x);
 }

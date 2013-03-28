@@ -101,7 +101,7 @@ void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<comple
     std::vector<complex> lts_freq(lts), Y(ofdm.format.nfft, 0), S_Y(ofdm.format.nfft, 0);
     complex *p = &*lts_freq.begin();
     for (int i=0; i<ofdm.format.ts_reps; i++) {
-        fft(p, ofdm.format.nfft, 1);
+        fft(p, ofdm.format.nfft);
         for (int j=0; j<ofdm.format.nfft; j++) {
             Y[j] += p[j];
             S_Y[j] += norm(p[j]);
@@ -177,7 +177,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     complex *p = &*lts.begin();
     for (int i=0; i<N_lts_reps; i++)
     {
-        fft(p, nfft, 1);
+        fft(p, nfft);
         for (int j=0; j<nfft; j++) {
             if (ofdm.format.lts_freq[j] == complex(0,0))
                 p[j] = 0;
@@ -252,7 +252,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     Rate &r_est = rates[0];
     while (input.size()-offset > nfft && i <= length_symbols) {
         std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
-        fft(&*sym.begin(), nfft, 1);
+        fft(&*sym.begin(), nfft);
         for (int j=0; j<nfft; j++)
             sym[j] = sym[j] * G[j];
         std::vector<complex> data(ofdm.format.Nsc);
