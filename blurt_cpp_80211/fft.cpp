@@ -5,9 +5,6 @@
 
 #include <float.h>
 typedef float real;
-#define IFFT_GET_SCALE(_scale_) real _scale_ = scale;
-#define IFFT_SCALE(_x_, _n_, _scale_) { _x_ *= scale; }
-#define TWIDDLE_SCALE(_x_)
 
 class FFT {
 private:
@@ -82,7 +79,7 @@ FFT::FFT(size_t n, bool forward) : n(n), forward(forward)
         factors[i] = omega(rev(i, n-1), n, forward);
 
     // 1/N scaling of IFFT
-    scale = forward ? 1.f : pow(2, -n);
+    scale = forward ? 1.f : powf(2, -n);
 }
 
 FFT::~FFT() {
@@ -94,8 +91,6 @@ void FFT::transform(complex *x)
 {
     rev_in_place(x);
 
-    int n = n;
-    complex *factors = factors;
     for (int m=0; m<n-1; m++)
     {
         int jmax = 1<<m, imax = (1<<(n-m-1));
@@ -107,7 +102,6 @@ void FFT::transform(complex *x)
             for (int j=0; j<jmax; j++)
             {
                 complex _x1 = *x1, y1 = (*x0-_x1) * factor;
-                TWIDDLE_SCALE(y1);
                 *x0 += _x1; *x1 = y1;
                 x0 += 1; x1 += 1;
             }
@@ -119,11 +113,10 @@ void FFT::transform(complex *x)
     complex *x0 = x, *x1 = x + jmax;
     if (!forward)
     {
-        IFFT_GET_SCALE(scale);
         for (int j=jmax; j; j--)
         {
             complex _x1 = *x1, y0 = (*x0+_x1), y1 = (*x0-_x1);
-            IFFT_SCALE(y0, n, scale); IFFT_SCALE(y1, n, scale);
+            y0 *= scale; y1 *= scale;
             *x0 = y0; *x1 = y1;
             x0 += 1; x1 += 1;
         }
