@@ -112,8 +112,11 @@ class ContinuousTransmitter(audio.stream.ThreadedStream):
         self.i += 1
         output = wifi.encode(input_octets, rate)
         output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None)
-        return np.hstack((self.hp[0](output[:,0])[:,np.newaxis],
-                          self.hp[1](output[:,1])[:,np.newaxis]))
+        if False:
+            return output
+        else:
+            return np.hstack((self.hp[0](output[:,0])[:,np.newaxis],
+                              self.hp[1](output[:,1])[:,np.newaxis]))
 
 def startListening():
     audio.record(ContinuousReceiver(), Fs)
