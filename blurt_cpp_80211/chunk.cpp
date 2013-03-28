@@ -2,19 +2,21 @@
 #include <fstream>
 
 Chunk::Chunk(std::ifstream &file) :
-    ifile(&file), ofile(0), offset(file.tellg()), counter(0)
+    ifile(&file), ofile(0), offset(file.is_open() ? (uint32_t)file.tellg() : 0),
+    counter(0), parent(0)
 {
-    this->ifile->read((char *)id, 4);
-    this->ifile->read((char *)size, 4);
+    id.resize(4);
+    this->ifile->read(&id[0], 4);
+    this->ifile->read((char *)&size, 4);
 }
 
 void Chunk::writeHeader() {
     this->ofile->seekp(offset);
-    this->ofile->write((char *)&id, 4);
+    this->ofile->write(&id[0], 4);
     this->ofile->write((char *)&size, 4);
 }
 
-Chunk::Chunk(std::ofstream &file, uint32_t id, Chunk *parent) :
+Chunk::Chunk(std::ofstream &file, std::string id, Chunk *parent) :
     ofile(&file), ifile(0), id(id), size(0), offset(file.tellp()), counter(0),
     parent(parent)
 {
@@ -23,8 +25,9 @@ Chunk::Chunk(std::ofstream &file, uint32_t id, Chunk *parent) :
     writeHeader();
 }
 
-Chunk::Chunk(std::ofstream &file, uint32_t id) :
-    ofile(&file), ifile(0), id(id), size(0), offset(file.tellp()), counter(0)
+Chunk::Chunk(std::ofstream &file, std::string id) :
+    ofile(&file), ifile(0), id(id), size(0), offset(file.tellp()), counter(0),
+    parent(0)
 {
     writeHeader();
 }
@@ -55,12 +58,14 @@ void Chunk::allocate(size_t count) {
     counter += count;
 }
 
-Chunk &Chunk::addSubchunk(uint32_t id) {
+Chunk &Chunk::addSubchunk(std::string id) {
     subchunks.push_back(Chunk(*ofile, id, this));
     return subchunks.back();
 }
 
 void Chunk::close() {
+    if (size < counter)
+        size = counter;
     if (ofile)
         writeHeader();
     subchunks.clear();
