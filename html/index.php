@@ -25,7 +25,7 @@ if (isset($_FILES['myFile'])) {
         <title>Sign up</title>
         <link rel="stylesheet" type="text/css" href="ui.css">
         <script type="text/javascript" src="recorder.js"> </script>
-        <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/swfobject/2.2/swfobject.js"></script>
+        <script type="text/javascript" src="swfobject.js"></script>
         <script type="text/javascript" src="wamirecorder.js"> </script>
         <script type="text/javascript">
         <!--
