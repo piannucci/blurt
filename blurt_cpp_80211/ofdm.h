@@ -1,3 +1,5 @@
+#ifndef OFDM_H
+#define OFDM_H
 #include "blurt.h"
 #include "scrambler.h"
 
@@ -25,3 +27,4 @@ public:
     OFDM(const OFDMFormat &format);
     void encode(const std::vector<complex> &input, std::vector<complex> &output);
 };
+#endif

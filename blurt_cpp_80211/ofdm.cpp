@@ -24,7 +24,7 @@ OFDMFormat audioLTFormat() {
     int sts_nonzero_idx[] = {4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4};
     complex sts_nonzero_phase[] = {-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1};
     for (int i=0; i<sizeof(sts_nonzero_idx)/sizeof(int); i++)
-        f.sts_freq[(i+f.nfft)%f.nfft] = sts_unit * sts_nonzero_phase[i];
+        f.sts_freq[(sts_nonzero_idx[i]+f.nfft)%f.nfft] = sts_unit * sts_nonzero_phase[i];
     trainingSequenceFromFreq(f.sts_freq, f.ts_reps, f.ncp, f.sts_time);
     complex lts_freq_vals[] = {
         0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
