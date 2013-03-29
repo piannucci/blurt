@@ -196,13 +196,13 @@ bool writewave(const std::string &filename, const std::vector<float> &input, int
         return false;
     }
     int nframes = input.size()/nchannels;
-    float scale = 1ull<<(8*sampwidth-1);
+    float scale = 1ull<<(8*sampwidth);
     std::vector<char> quantized_input(input.size()*sampwidth);
     for (int i=0; i<input.size(); i++) {
         float clipped_input = input[i];
         clipped_input = (clipped_input > 1.f) ? 1.f : clipped_input;
         clipped_input = (clipped_input < -1.f) ? -1.f : clipped_input;
-        int32_t sample = clipped_input * scale;
+        int32_t sample = int32_t(clipped_input * scale + 1) >> 1; // proper rounding
         if (sampwidth == 1)
             sample += 0x80;
         memcpy(&quantized_input[i*sampwidth], &sample, sampwidth);
