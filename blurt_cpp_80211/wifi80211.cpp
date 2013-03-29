@@ -98,7 +98,8 @@ void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> 
 }
 
 void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<complex> &G, float &snr, float &lsnr_estimate) {
-    std::vector<complex> lts_freq(lts), Y(ofdm.format.nfft, 0), S_Y(ofdm.format.nfft, 0);
+    std::vector<complex> lts_freq(lts), Y(ofdm.format.nfft, 0);
+    std::vector<float> S_Y(ofdm.format.nfft, 0);
     complex *p = &lts_freq[0];
     for (int i=0; i<ofdm.format.ts_reps; i++) {
         fft(p, ofdm.format.nfft);
@@ -109,6 +110,7 @@ void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<comple
         p += ofdm.format.nfft;
     }
     float scale = 1.f/ofdm.format.ts_reps;
+    G.resize(ofdm.format.nfft);
     for (int j=0; j<ofdm.format.nfft; j++) {
         Y[j] *= scale;
         S_Y[j] *= scale;
@@ -218,6 +220,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
         offsets.push_back(off);
         Gs.push_back(std::vector<complex>());
         snrs.push_back(0);
+        lsnr_estimates.push_back(-std::numeric_limits<float>::infinity());
         lts.assign(input.begin()+off, input.begin()+off+N_lts_period*N_lts_reps);
         wienerFilter(lts, Gs.back(), snrs.back(), lsnr_estimates.back());
         if (lsnr_estimates.back() > lsnr_estimate) {
@@ -254,7 +257,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
         std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
         fft(&sym[0], nfft);
         for (int j=0; j<nfft; j++)
-            sym[j] = sym[j] * G[j];
+            sym[j] *= G[j];
         std::vector<complex> data(ofdm.format.Nsc);
         for (int j=0; j<data.size(); j++)
             data[j] = sym[ofdm.format.dataSubcarriers[j]];
@@ -358,6 +361,8 @@ void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResu
     synchronize(input, startIndices);
     for (int i=0; i<startIndices.size(); i++) {
         int startIndex = startIndices[i];
+        if (startIndex >= input.size())
+            break;
         if (startIndex < endIndex) // we already successfully decoded this packet
             continue;
         working_buffer.assign(input.begin()+startIndex, input.end());
