@@ -2,8 +2,6 @@
 #include <limits>
 #include <cmath>
 
-#include <iostream>
-
 float log1p(float x)
 {
     const float u = 1. + x;

@@ -1,6 +1,7 @@
 #ifndef IIR_H
 #define IIR_H
 #import "blurt.h"
+#import "mkfilter.h"
 
 template <class T>
 class IIRFilter {
@@ -16,13 +17,30 @@ public:
         x_hist(new T [order]), y_hist(new T [order])
     {
         for (int i=0; i<order; i++) {
-            this->alpha[i] = alpha[i];
-            this->beta[i] = beta[i];
             this->x_hist[i] = 0.f;
             this->y_hist[i] = 0.f;
+            this->alpha[i] = alpha[i];
+            this->beta[i] = beta[i];
         }
         this->alpha[order] = alpha[order];
     }
+
+    IIRFilter(const char *argv[])
+    {
+        float alpha[MAXPZ], beta[MAXPZ];
+        mkfilter(argv, order, alpha, beta, gamma);
+        this->alpha = new float[order+1];
+        this->beta = new float[order];
+        x_hist = new T [order];
+        y_hist = new T [order];
+        for (int i=0; i<order; i++) {
+            this->x_hist[i] = 0.f;
+            this->y_hist[i] = 0.f;
+            this->alpha[i] = alpha[i];
+            this->beta[i] = beta[i];
+        }
+        this->alpha[order] = alpha[order];
+    };
 
     ~IIRFilter() {
         delete [] x_hist;
@@ -31,7 +49,7 @@ public:
         delete [] beta;
     };
 
-    void operator ()(const std::vector<T> &input, std::vector<T> &output) {
+    void apply(const std::vector<T> &input, std::vector<T> &output) {
         size_t N = input.size();
         output.resize(N);
         T *x = new T [order + N];
@@ -42,7 +60,7 @@ public:
         }
         for (int i=order; i<N+order; i++) {
             x[i] = input[i-order];
-            float acc = 0;
+            T acc = 0;
             for (int j=0; j<order; j++) {
                 acc += alpha[j]*x[i+j-order];
                 acc += beta[j]*y[i+j-order];
