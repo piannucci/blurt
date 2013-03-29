@@ -50,6 +50,7 @@ void solve(const std::vector<T> &a, const std::vector<T> &b, std::vector<T> &x, 
         ai[0] = a[3]/det; ai[1] = -a[1]/det; ai[2] = -a[2]/det; ai[3] = a[0]/det;
         dot(ai, b, x, n, m, l);
     } else {
+        throw "solve: unrecognized matrix shape";
         // do some fancy LU stuff using the code in lu.cpp
     }
 }
