@@ -263,8 +263,9 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
             data[j] = sym[ofdm.format.dataSubcarriers[j]];
         std::vector<complex> pilots(ofdm.format.pilotSubcarriers.size());
         complex pilot_sum = 0;
+        complex polarity = pilotPolarity.next();
         for (int j=0; j<pilots.size(); j++) {
-            pilots[j] = sym[ofdm.format.pilotSubcarriers[j]] * pilotPolarity.next() * ofdm.format.pilotTemplate[j];
+            pilots[j] = sym[ofdm.format.pilotSubcarriers[j]] * polarity * ofdm.format.pilotTemplate[j];
             pilot_sum += pilots[j];
         }
         complex kalman_u;
@@ -382,6 +383,7 @@ void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResu
         bitvector output_bits;
         decodeFromLLR(llr, length_bits, output_bits);
         output_bits.erase(output_bits.begin(), output_bits.begin()+16);
+        output_bits.resize(length_bits);
         if (!crc.checkFCS(output_bits))
             continue;
         output_bits.resize(output_bits.size()-32);

@@ -1,6 +1,6 @@
 CC=clang++
-CFLAGS=-c -I/opt/local/include -g
-LDFLAGS=-L/opt/local/lib -g
+CFLAGS=-c -I/opt/local/include -O4
+LDFLAGS=-L/opt/local/lib -O4
 SOURCES=wifi80211.cpp constellation.cpp qam.cpp blurt.cpp cc.cpp \
 		puncture.cpp crc.cpp util.cpp interleave.cpp scrambler.cpp \
 		fft.cpp iir.cpp upsample.cpp ofdm.cpp rate.cpp kalman.cpp \
