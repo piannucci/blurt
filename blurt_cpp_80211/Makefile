@@ -4,7 +4,7 @@ LDFLAGS=-L/opt/local/lib -g
 SOURCES=wifi80211.cpp constellation.cpp qam.cpp blurt.cpp cc.cpp \
 		puncture.cpp crc.cpp util.cpp interleave.cpp scrambler.cpp \
 		fft.cpp iir.cpp upsample.cpp ofdm.cpp rate.cpp kalman.cpp \
-		chunk.cpp wave.cpp
+		chunk.cpp wave.cpp mkfilter.cpp
 OBJECTS=$(SOURCES:.cpp=.o)
 
 all: blurt
