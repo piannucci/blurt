@@ -18,6 +18,6 @@ void upsample(const std::vector<complex> &input, float n, std::vector<complex> &
         x[L-N+i] = x[i];
     for (int i=N/2; i<L-N/2; i++)
         x[i] = 0;
-    ifft(&x[0], N);
+    ifft(&x[0], L);
     output.assign(x.begin(), x.begin() + int(M*n));
 }
