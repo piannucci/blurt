@@ -79,7 +79,7 @@ FFT::FFT(size_t n, bool forward) : n(n), forward(forward)
         factors[i] = omega(rev(i, n-1), n, forward);
 
     // 1/N scaling of IFFT
-    scale = forward ? 1.f : powf(2, -n);
+    scale = forward ? 1.f : powf(2.f, -float(n));
 }
 
 FFT::~FFT() {
@@ -115,10 +115,8 @@ void FFT::transform(complex *x)
     {
         for (int j=jmax; j; j--)
         {
-            complex _x1 = *x1, y0 = (*x0+_x1), y1 = (*x0-_x1);
-            y0 *= scale; y1 *= scale;
-            *x0 = y0; *x1 = y1;
-            x0 += 1; x1 += 1;
+            complex _x0 = *x0, _x1 = *x1;
+            *x0++ = (_x0+_x1) * scale; *x1++ = (_x0-_x1) * scale;
         }
     }
     else
@@ -126,8 +124,7 @@ void FFT::transform(complex *x)
         for (int j=jmax; j; j--)
         {
             complex _x1 = *x1, y1 = (*x0-_x1);
-            *x0 += _x1; *x1 = y1;
-            x0 += 1; x1 += 1;
+            *x0++ += _x1; *x1++ = y1;
         }
     }
 }
@@ -138,17 +135,15 @@ int log2(size_t n) {
     return logn;
 }
 
-std::map<size_t, FFT *> fft_objects;
-
 void fft(complex *x, size_t n) {
+    static std::map<size_t, FFT *> fft_objects;
     if (fft_objects.find(n) == fft_objects.end())
         fft_objects[n] = new FFT(log2(n), true);
     fft_objects[n]->transform(x);
 }
 
-std::map<size_t, FFT *> ifft_objects;
-
 void ifft(complex *x, size_t n) {
+    static std::map<size_t, FFT *> ifft_objects;
     if (ifft_objects.find(n) == ifft_objects.end())
         ifft_objects[n] = new FFT(log2(n), false);
     ifft_objects[n]->transform(x);
