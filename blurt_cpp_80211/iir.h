@@ -1,7 +1,7 @@
 #ifndef IIR_H
 #define IIR_H
-#import "blurt.h"
-#import "mkfilter.h"
+#include "blurt.h"
+#include "mkfilter.h"
 
 template <class T>
 class IIRFilter {

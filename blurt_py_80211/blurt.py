@@ -102,10 +102,10 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
 class ContinuousTransmitter(audio.stream.ThreadedStream):
     def init(self):
         self.channels = 2
-        super(ContinuousTransmitter, self).init()
         self.i = 0
         cutoff = Fc - Fs/upsample_factor
         self.hp = [iir.highpass(cutoff/Fs, continuous=True, dtype=np.float64) for i in xrange(2)]
+        super(ContinuousTransmitter, self).init()
     def thread_produce(self):
         input_octets = ord('A') + np.random.random_integers(0,25,length)
         input_octets[:6] = map(ord, '%06d' % self.i)

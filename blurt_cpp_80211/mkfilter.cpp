@@ -1,4 +1,6 @@
 #include "mkfilter.h"
+#include <cstdlib>
+#include <cstring>
 
 #define VERSION	    "4.6"
 #define EPS	    1e-10
@@ -223,11 +225,8 @@ static int getiarg(const char *s)
     return atoi(s);
 }
 
-static bool optsok;
-
 static void checkoptions()
 {
-    optsok = true;
     if (!onebit(options & (opt_be | opt_bu | opt_ch | opt_re | opt_pi)))
         throw "mkfilter: must specify exactly one of -Be, -Bu, -Ch, -Re, -Pi";
     if (options & opt_re)
@@ -261,7 +260,6 @@ static void checkoptions()
         else throw "must specify -o";
     }
     if (!(options & opt_a)) throw "must specify -a";
-    if (!optsok) exit(1);
 }
 
 static void setdefaults()
