@@ -58,6 +58,11 @@ def presentResults(results, drawFunc):
             for result in _results:
                 payload, _, _, lsnr_estimate = result
                 print repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate)
+                if typeModHex:
+                    import keypress
+                    mod = "cbdefghijklnrtuv"
+                    otp = ''.join('%s%s' % (mod[x>>4], mod[x&15]) for x in payload)
+                    keypress.type(otp+'\n')
         #else:
         #    decoderDiagnostics()
         #    pl.draw()
@@ -143,6 +148,7 @@ def decoderDiagnostics(waveform=None):
     pl.xlim(0, waveform.size/Fs_eff)
 
 visualize = False
+typeModHex = False
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
@@ -160,11 +166,14 @@ if __name__ == '__main__':
             else:
                 break
         if args[0] == '--rx':
+            typeModHex = '--yubikey' in args
+            doDiagnostics = ('--nodiags' not in args) and not typeModHex
             try:
                 startListening()
             except KeyboardInterrupt:
                 pass
-            decoderDiagnostics()
+            if doDiagnostics:
+                decoderDiagnostics()
         elif args[0] == '--tx':
             startTransmitting()
         elif args[0] == '--wav-in' and len(args) > 1:
