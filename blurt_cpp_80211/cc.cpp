@@ -39,8 +39,8 @@ void ConvolutionalCode::decode(const std::vector<int> &input, int length, bitvec
     }
     bitvector bt(N*M);
     output.resize(N);
-    std::vector<int64_t> cost(M*2);
-    std::vector<int64_t> scores(M, 0);
+    std::vector<int32_t> cost(M*2);
+    std::vector<int32_t> scores(M, 0);
     for (int k=0; k<N; k++) {
         for (int i=0; i<M; i++) {
             int edgeCost = input[2*k+0]*output_map_1_soft[i] + input[2*k+1]*output_map_2_soft[i];

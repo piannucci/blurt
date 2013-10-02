@@ -2,6 +2,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#if !__EXCEPTIONS
+#define throw std::cerr <<
+#endif
+
 #define VERSION	    "4.6"
 #define EPS	    1e-10
 #define MAXORDER    10
@@ -308,11 +312,10 @@ static void compute_s() /* compute S-plane poles for prototype LP filter */
             throw "mkfilter: bug: Chebyshev y must be > 0.0";
             exit(1);
         }
+        double sh = sinh(y);
+        double ch = cosh(y);
         for (int i = 0; i < splane.numpoles; i++)
-        {
-            splane.poles[i].real() *= sinh(y);
-            splane.poles[i].imag() *= cosh(y);
-        }
+            splane.poles[i] = dcomplex(splane.poles[i].real() * sh, splane.poles[i].imag() * ch);
     }
 }
 

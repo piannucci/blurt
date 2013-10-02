@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model name="" userDefinedModelVersionIdentifier="" type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1811" systemVersion="11G63" minimumToolsVersion="Xcode 4.3" macOSVersion="Automatic" iOSVersion="Automatic">
+    <entity name="Credential" syncable="YES">
+        <attribute name="longName" optional="YES" attributeType="String" indexed="YES" syncable="YES"/>
+        <attribute name="privateID" optional="YES" attributeType="Binary" syncable="YES"/>
+        <attribute name="publicID" optional="YES" attributeType="Binary" indexed="YES" syncable="YES"/>
+        <attribute name="secretKey" optional="YES" attributeType="Binary" syncable="YES"/>
+        <attribute name="sessionCounter" optional="YES" attributeType="Integer 64" defaultValueString="-1" syncable="YES"/>
+        <attribute name="shortName" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="timestampBase" optional="YES" transient="YES" attributeType="Date" syncable="YES"/>
+        <attribute name="useCounter" optional="YES" transient="YES" attributeType="Integer 64" defaultValueString="-1" syncable="YES"/>
+    </entity>
+    <elements>
+        <element name="Credential" positionX="160" positionY="192" width="128" height="165"/>
+    </elements>
+</model>

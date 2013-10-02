@@ -3,6 +3,10 @@
 #include <fstream>
 #include <string.h>
 
+#if !__EXCEPTIONS
+#define throw std::cerr <<
+#endif
+
 typedef struct {
     uint16_t wFormatTag;
     uint16_t wChannels;

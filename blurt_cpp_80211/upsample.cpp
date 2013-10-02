@@ -2,13 +2,15 @@
 
 void upsample(const std::vector<complex> &input, float n, std::vector<complex> &output) {
     int M = input.size();
-    int N;
+    int N = 0;
     for (int i=0; i<24; i++) {
         if (M <= (1<<i)) {
             N = 1<<i;
             break;
         }
     }
+    if (!N)
+        abort();
     int L = N + int((n-1)*N);
     std::vector<complex> x(input);
     x.resize(N);

@@ -1,5 +1,9 @@
 #include "kalman.h"
 
+#if !__EXCEPTIONS
+#define throw std::cerr <<
+#endif
+
 KalmanPilotTracker::KalmanPilotTracker(float uncertainty, float var_n) {
     const float std_theta = uncertainty;
     const float sigma_noise = 4*var_n*.5;

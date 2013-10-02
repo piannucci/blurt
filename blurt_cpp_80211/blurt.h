@@ -5,6 +5,7 @@
 #include <string>
 #include <stdint.h>
 #include <iostream>
+#include <cmath>
 
 #define pi 3.141592653589793238462f
 #define dpi 3.141592653589793238462

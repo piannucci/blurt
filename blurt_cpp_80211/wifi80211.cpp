@@ -166,7 +166,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
         acc += sts[i] * conj(sts[N_sts_period+i]);
     float angle_off_estimate = arg(acc)/N_sts_period;
     for (int i=0; i<input.size(); i++)
-        input[i] = input[i] * exp(complex(0,angle_off_estimate*i));
+        input[i] = input[i] * expj(angle_off_estimate*i);
     // Next, obtain a fine frequency offset estimate from the long training sequences, and estimate
     // how uncertain this estimate is.
     const int N_lts_period = nfft;
@@ -207,7 +207,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     }
     float additional_freq_off_estimate = arg(acc)/N_lts_period;
     for (int i=0; i<input.size(); i++)
-        input[i] = input[i] * exp(complex(0, additional_freq_off_estimate*i));
+        input[i] = input[i] * expj(additional_freq_off_estimate*i);
     // if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
     // var(n) = var(input) / (snr num_used_sc/num_sc + 1)
     // var(x_i) = (var(input) - var(n)) / num_used_sc

@@ -25,13 +25,13 @@ void processOutput(const std::vector<complex> &input, std::vector<float> &output
     upsample(input, upsample_factor, upsampled_output);
     output.resize(upsampled_output.size());
     for (int i=0; i<upsampled_output.size(); i++)
-        output[i] = real(upsampled_output[i] * exp(complex(0, (2*pi*Fc*i)/Fs)))*1e-1;
+        output[i] = real(upsampled_output[i] * expj((2*pi*Fc*i)/Fs))*1e-1;
 }
 
 void processInput(const std::vector<float> &input, std::vector<complex> &output) {
     std::vector<complex> baseband_signal(input.size());
     for (int i=0; i<input.size(); i++)
-        baseband_signal[i] = input[i] * exp(complex(0, -(2*pi*Fc*i)/Fs));
+        baseband_signal[i] = input[i] * expj(-(2*pi*Fc*i)/Fs);
     std::ostringstream order, freq;
     order << 6;
     freq << (.8 / upsample_factor);
@@ -46,7 +46,9 @@ void processInput(const std::vector<float> &input, std::vector<complex> &output)
 }
 
 int main(int argc, char **argp, char **envp) {
+#if __EXCEPTIONS
     try {
+#endif
         srand(time(NULL));
         std::vector<int> input(1500);
         std::vector<complex> output;
@@ -55,7 +57,7 @@ int main(int argc, char **argp, char **envp) {
             input[i] = rand() % 256;
         clock_t t0 = clock();
         for (int i=0; i<trials; i++) {
-            wifi.encode(input, 0, output);
+            wifi.encode(input, rate, output);
         }
         clock_t t1 = clock();
         double per_trial = (double(t1 - t0)/CLOCKS_PER_SEC/trials);
@@ -70,7 +72,7 @@ int main(int argc, char **argp, char **envp) {
         per_trial = (double(t1 - t0)/CLOCKS_PER_SEC/trials);
         std::cout << (samples_encoded / per_trial) << std::endl;
         //writewave("test.wav", output, Fs, 3, 1);
-        //std::cout << decoded.size() << std::endl;
+        std::cout << decoded.size() << std::endl;
         //for (int i=0; i<decoded.size(); i++) {
         //    std::cout << decoded[i].lsnr << std::endl;
         //    std::vector<int> &payload = decoded[i].payload;
@@ -79,8 +81,10 @@ int main(int argc, char **argp, char **envp) {
         //        std::cout << (char)payload[j];
         //    std::cout << "'" << std::endl;
         //}
+#if __EXCEPTIONS
     } catch (const char *s) {
         std::cerr << s << std::endl;
     }
+#endif
     return 0;
 }

@@ -81,7 +81,6 @@ void CRC::FCS(const bitvector &calculationFields, bitvector &output) {
 }
 
 bool CRC::checkFCS(const bitvector &frame) {
-    int k = frame.size();
     bitvector a;
     a.assign(frame.begin(), frame.end());
     a.resize(a.size() + 32);
