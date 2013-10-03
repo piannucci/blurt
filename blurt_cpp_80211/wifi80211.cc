@@ -19,7 +19,7 @@ WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
     rates.push_back(Rate(0x3, QAM(6), PuncturingMask(5,6), ofdm.format));
 }
 
-void WiFi80211::plcp_bits(const Rate &rate, int octets, bitvector &output) {
+void WiFi80211::plcp_bits(const Rate &rate, int octets, bitvector &output) const {
     int plcp_rate = rev(rate.encoding, 4);
     int plcp = plcp_rate | (octets << 5);
     int parity = (mul(plcp, 0x1FFFF) >> 16) & 1;
@@ -29,7 +29,7 @@ void WiFi80211::plcp_bits(const Rate &rate, int octets, bitvector &output) {
     shiftout(input, 18, output);
 }
 
-void WiFi80211::subcarriersFromBits(const bitvector &bits, const Rate &rate, int scramblerState, std::vector<complex> &output) {
+void WiFi80211::subcarriersFromBits(const bitvector &bits, const Rate &rate, int scramblerState, std::vector<complex> &output) const {
     // scrambled includes tail & padding
     bitvector scrambled, coded, punctured, interleaved;
     Scrambler::scramble(bits, rate.Nbps, scrambled, scramblerState);
@@ -39,7 +39,7 @@ void WiFi80211::subcarriersFromBits(const bitvector &bits, const Rate &rate, int
     rate.constellation.map(interleaved, output);
 }
 
-void WiFi80211::encode(const std::vector<int> &input_octets, int rate_index, std::vector<complex> &output) {
+void WiFi80211::encode(const std::vector<int> &input_octets, int rate_index, std::vector<complex> &output) const {
     bitvector service_bits(16, 0);
     bitvector data_bits, fcs_bits;
     shiftout(input_octets, 8, data_bits);
@@ -55,7 +55,7 @@ void WiFi80211::encode(const std::vector<int> &input_octets, int rate_index, std
     ofdm.encode(signal_subcarriers, output);
 }
 
-void WiFi80211::autocorrelate(const std::vector<complex> &input, std::vector<float> &output) {
+void WiFi80211::autocorrelate(const std::vector<complex> &input, std::vector<float> &output) const {
     int nfft = ofdm.format.nfft;
     int ncp = ofdm.format.ncp;
     int ts_reps = ofdm.format.ts_reps;
@@ -75,7 +75,7 @@ void WiFi80211::autocorrelate(const std::vector<complex> &input, std::vector<flo
         output[i] = corr_sum[Nreps-1+i] - corr_sum[i];
 }
 
-void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> &startIndices) {
+void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> &startIndices) const {
     std::vector<float> score;
     autocorrelate(input, score);
     startIndices.clear();
@@ -97,7 +97,7 @@ void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> 
     }
 }
 
-void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<complex> &G, float &snr, float &lsnr_estimate) {
+void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<complex> &G, float &snr, float &lsnr_estimate) const {
     std::vector<complex> lts_freq(lts), Y(ofdm.format.nfft, 0);
     std::vector<float> S_Y(ofdm.format.nfft, 0);
     complex *p = &lts_freq[0];
@@ -148,7 +148,7 @@ float var(const std::vector<complex> &input) {
     return sum_sq / count - norm(sum)/count/count;
 }
 
-void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, float &uncertainty, float &var_ni, int &offset, float &lsnr_estimate) {
+void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, float &uncertainty, float &var_ni, int &offset, float &lsnr_estimate) const {
     const int nfft = ofdm.format.nfft;
     const int Nsc_used = ofdm.format.Nsc_used, Nsc = ofdm.format.Nsc;
     const int ts_reps = ofdm.format.ts_reps;
@@ -242,7 +242,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
 }
 
 void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float uncertainty, float var_n,
-                           std::vector<int> &coded_bits, int &length_bits, int &offset) {
+                           std::vector<int> &coded_bits, int &length_bits, int &offset) const {
     int nfft = ofdm.format.nfft;
     int ncp = ofdm.format.ncp;
     KalmanPilotTracker kalman(uncertainty, var_n);
@@ -252,7 +252,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     int i = 0;
     int length_symbols = 0, length_coded_bits;
     float dispersion;
-    Rate &r_est = rates[0];
+    const Rate *r_est = &rates[0];
     while (input.size()-offset > nfft && i <= length_symbols) {
         std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
         fft(&sym[0], nfft);
@@ -307,8 +307,8 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
                 length_bits = 0;
                 return;
             }
-            r_est = rates[rate_estimate];
-            int Ncbps = r_est.Ncbps;
+            r_est = &rates[rate_estimate];
+            int Ncbps = r_est->Ncbps;
             int length_octets = (plcp_estimate_value >> 5) & 0xfff;
             length_bits = length_octets * 8;
             length_coded_bits = (length_bits+16+6)*2;
@@ -323,7 +323,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
             dispersion = var(residual);
         } else {
             std::vector<int> ll;
-            r_est.constellation.demap(data, dispersion, ll);
+            r_est->constellation.demap(data, dispersion, ll);
             demapped_bits.insert(demapped_bits.end(), ll.begin(), ll.end());
         }
         offset += nfft+ncp;
@@ -335,8 +335,8 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
         return;
     }
     std::vector<int> punctured_bits_estimate;
-    interleave(demapped_bits, r_est.Ncbps, r_est.Nbpsc, true, punctured_bits_estimate);
-    r_est.puncturingMask.depuncture(punctured_bits_estimate, coded_bits);
+    interleave(demapped_bits, r_est->Ncbps, r_est->Nbpsc, true, punctured_bits_estimate);
+    r_est->puncturingMask.depuncture(punctured_bits_estimate, coded_bits);
     if (coded_bits.size() < length_coded_bits) {
         coded_bits.clear();
         length_bits = 0;
@@ -345,14 +345,14 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     coded_bits.resize(length_coded_bits);
 }
 
-void WiFi80211::decodeFromLLR(const std::vector<int> &input, int length_bits, bitvector &output) {
+void WiFi80211::decodeFromLLR(const std::vector<int> &input, int length_bits, bitvector &output) const {
     bitvector scrambled_bits;
     code.decode(input, length_bits+16, scrambled_bits);
     scrambled_bits.resize(length_bits+16);
     Scrambler::scramble(scrambled_bits, 0, output, 0x5d);
 }
 
-void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResult> &output) {
+void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResult> &output) const {
     output.clear();
     int endIndex = 0;
     std::vector<complex> working_buffer;

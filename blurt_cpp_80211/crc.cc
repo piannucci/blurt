@@ -13,7 +13,7 @@ void CRC::remainder_slow(const bitvector &a, bitvector &output) {
     output.assign(c.rbegin(), c.rbegin()+(B-1));
 }
 
-uint32_t CRC::remainder_fast(const bitvector &a, bitvector &output) {
+uint32_t CRC::remainder_fast(const bitvector &a, bitvector &output) const {
     int N = a.size(), A = (N+L-1)/L;
     std::vector<int> a_words(A);
     for (int i=0; i<A; i++) {
@@ -69,7 +69,7 @@ void CRC::lut_bootstrap(const bitvector &new_b, int new_L) {
     m = (1ull<<M)-1;
 }
 
-void CRC::FCS(const bitvector &calculationFields, bitvector &output) {
+void CRC::FCS(const bitvector &calculationFields, bitvector &output) const {
     bitvector a;
     a.assign(calculationFields.begin(), calculationFields.end());
     a.resize(a.size() + 32);
@@ -80,7 +80,7 @@ void CRC::FCS(const bitvector &calculationFields, bitvector &output) {
         output[i] = !output[i];
 }
 
-bool CRC::checkFCS(const bitvector &frame) {
+bool CRC::checkFCS(const bitvector &frame) const {
     bitvector a;
     a.assign(frame.begin(), frame.end());
     a.resize(a.size() + 32);

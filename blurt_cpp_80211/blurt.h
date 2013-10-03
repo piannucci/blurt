@@ -12,5 +12,7 @@
 
 typedef std::vector<char> bitvector;
 typedef std::complex<float> complex;
+typedef complex fcomplex;
 typedef std::complex<double> dcomplex;
+
 #endif

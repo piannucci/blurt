@@ -25,6 +25,6 @@ class OFDM {
 public:
     OFDMFormat format;
     OFDM(const OFDMFormat &format);
-    void encode(const std::vector<complex> &input, std::vector<complex> &output);
+    void encode(const std::vector<complex> &input, std::vector<complex> &output) const;
 };
 #endif

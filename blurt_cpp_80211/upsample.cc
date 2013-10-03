@@ -1,4 +1,5 @@
 #include "upsample.h"
+#include <cstdlib>
 
 void upsample(const std::vector<complex> &input, float n, std::vector<complex> &output) {
     int M = input.size();

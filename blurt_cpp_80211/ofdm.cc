@@ -77,7 +77,7 @@ void stitch(const std::vector<std::vector<complex> > &input, std::vector<complex
 OFDM::OFDM(const OFDMFormat &format) : format(format) {
 }
 
-void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &output) {
+void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &output) const {
     PilotPolarity pilotPolarity;
     std::vector<std::vector<complex> > output_chunks;
     int tilesNeeded = (format.ncp+format.nfft-1) / format.nfft + 2; // +1 for symbol, +1 for cross-fade

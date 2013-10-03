@@ -19,7 +19,7 @@ ConvolutionalCode::ConvolutionalCode(int nu, int g0, int g1) : nu(nu) {
     }
 }
 
-void ConvolutionalCode::encode(const bitvector &input, bitvector &output) {
+void ConvolutionalCode::encode(const bitvector &input, bitvector &output) const {
     int N = input.size();
     output.resize(N*2);
     uint32_t sh = 0;
@@ -30,7 +30,7 @@ void ConvolutionalCode::encode(const bitvector &input, bitvector &output) {
     }
 }
 
-void ConvolutionalCode::decode(const std::vector<int> &input, int length, bitvector &output) {
+void ConvolutionalCode::decode(const std::vector<int> &input, int length, bitvector &output) const {
     int N = length+nu-1;
     int M = 1<<nu;
     if (input.size() < N*2) {
