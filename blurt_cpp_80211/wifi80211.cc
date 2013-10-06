@@ -6,6 +6,8 @@
 #include "fft.h"
 #include <limits>
 #include "kalman.h"
+#include <cassert>
+#include <valgrind/memcheck.h>
 
 WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
 {
@@ -62,14 +64,14 @@ void WiFi80211::autocorrelate(const std::vector<complex> &input, std::vector<flo
     int Nperiod = nfft / 4;
     int Noutputs = (input.size() - Nperiod) / Nperiod;
     output.resize(Noutputs);
-    std::vector<float> corr_sum(5 + Noutputs, 0);
     int Nreps = ts_reps * (nfft + ncp) / Nperiod;
+    std::vector<float> corr_sum(Nreps-1 + Noutputs, 0);
     for (int i=0; i<Noutputs; i++) {
         int k = i * Nperiod;
         complex acc = 0;
         for (int j=0; j<Nperiod; j++)
             acc += input[k+j+Nperiod] * conj(input[k+j]);
-        corr_sum[5+i] = corr_sum[4+i] + abs(acc);
+        corr_sum[Nreps-1+i] = corr_sum[Nreps-2+i] + abs(acc);
     }
     for (int i=0; i<Noutputs; i++)
         output[i] = corr_sum[Nreps-1+i] - corr_sum[i];
@@ -85,9 +87,9 @@ void WiFi80211::synchronize(const std::vector<complex> &input, std::vector<int> 
     for (int j=0; j < N + 2*l; j++) {
         bool pass = true;
         for (int i=0; i<l; i++)
-            pass = pass && (((0 <= j-i && j-i < N) ? score[j-i] : 0) < ((0 <= j-l < N) ? score[j-l] : 0));
+            pass = pass && (((0 <= j-i && j-i < N) ? score[j-i] : 0) < ((0 <= j-l && j-l < N) ? score[j-l] : 0));
         for (int i=l+1; i<2*l+1; i++)
-            pass = pass && (((0 <= j-i && j-i < N) ? score[j-i] : 0) < ((0 <= j-l < N) ? score[j-l] : 0));
+            pass = pass && (((0 <= j-i && j-i < N) ? score[j-i] : 0) < ((0 <= j-l && j-l < N) ? score[j-l] : 0));
         if (pass) {
             int startIndex = 16*(j - l) - 64;
             if (startIndex < 0)
@@ -114,8 +116,12 @@ void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<comple
     for (int j=0; j<ofdm.format.nfft; j++) {
         Y[j] *= scale;
         S_Y[j] *= scale;
+        if (S_Y[j] == complex(0.,0.)) {
+            G.clear();
+            return;
+        }
         // Wiener deconvolution
-        G[j] = conj(Y[j])*ofdm.format.lts_freq[j] / S_Y[j];
+        G[j] = S_Y[j] ? conj(Y[j])*ofdm.format.lts_freq[j] / S_Y[j] : 0.;
     }
     // noise estimation via residuals
     complex resid_sum = 0;
@@ -146,6 +152,27 @@ float var(const std::vector<complex> &input) {
         count++;
     }
     return sum_sq / count - norm(sum)/count/count;
+}
+
+template <class T>
+static void check_vector(const std::vector<T> & input) {
+    int wasbad = 0;
+    for (int j=0; j<input.size(); j++) {
+        bool bad = VALGRIND_CHECK_VALUE_IS_DEFINED(input[j]);
+        bad |= isnan(input[j].real());
+        bad |= isnan(input[j].imag());
+        bad |= input[j] == complex(0.,0.);
+        if (bad) {
+            if (wasbad==0)
+                std::cout << "input bad beginning at " << j << ": " << input[j] << std::endl;
+        } else {
+            if (wasbad==1)
+                std::cout << "input good beginning at " << j << ": " << input[j] << std::endl;
+        }
+        wasbad = bad;
+    }
+    if (wasbad)
+        std::cout << "input ends at " << input.size() << std::endl;
 }
 
 void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, float &uncertainty, float &var_ni, int &offset, float &lsnr_estimate) const {
@@ -217,28 +244,33 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     int offset_index = -1;
     for (int i=0; i<16; i++) {
         int off = offset + lts_cp + i-8;
-        offsets.push_back(off);
-        Gs.push_back(std::vector<complex>());
-        snrs.push_back(0);
-        lsnr_estimates.push_back(-std::numeric_limits<float>::infinity());
-        lts.assign(input.begin()+off, input.begin()+off+N_lts_period*N_lts_reps);
-        wienerFilter(lts, Gs.back(), snrs.back(), lsnr_estimates.back());
-        if (lsnr_estimates.back() > lsnr_estimate) {
-            offset_index = i;
-            lsnr_estimate = lsnr_estimates.back();
+        if (off >= 0 && off+N_lts_period*N_lts_reps < input.size()) {
+            offsets.push_back(off);
+            Gs.push_back(std::vector<complex>());
+            snrs.push_back(0);
+            lsnr_estimates.push_back(-std::numeric_limits<float>::infinity());
+
+            lts.assign(input.begin()+off, input.begin()+off+N_lts_period*N_lts_reps);
+            wienerFilter(lts, Gs.back(), snrs.back(), lsnr_estimates.back());
+            if (Gs.back().size() && lsnr_estimates.back() > lsnr_estimate) {
+                offset_index = Gs.size()-1;
+                lsnr_estimate = lsnr_estimates.back();
+            }
         }
     }
-    // pick the offset that gives the highest SNR
-    float snr = snrs[offset_index];
-    G = Gs[offset_index];
-    offset = offsets[offset_index];
-    float var_input = var(input);
-    float var_n = var_input / (float(snr * Nsc_used) / Nsc + 1);
-    float var_x = var_input - var_n;
-    float var_y = 2*var_n*var_x + var_n*var_n;
-    uncertainty = atan(sqrt(var_y) / var_x) * (nfft+ncp) / N_lts_period / sqrt(nfft);
-    var_ni = var_x/Nsc_used/snr;
-    offset += N_lts_reps * nfft;
+    if (offset_index != -1) {
+        // pick the offset that gives the highest SNR
+        float snr = snrs[offset_index];
+        G = Gs[offset_index];
+        offset = offsets[offset_index];
+        float var_input = var(input);
+        float var_n = var_input / (float(snr * Nsc_used) / Nsc + 1);
+        float var_x = var_input - var_n;
+        float var_y = 2*var_n*var_x + var_n*var_n;
+        uncertainty = atan(sqrt(var_y) / var_x) * (nfft+ncp) / N_lts_period / sqrt(nfft);
+        var_ni = var_x/Nsc_used/snr;
+        offset += N_lts_period*N_lts_reps;
+    }
 }
 
 void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float uncertainty, float var_n,
@@ -253,7 +285,7 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     int length_symbols = 0, length_coded_bits;
     float dispersion;
     const Rate *r_est = &rates[0];
-    while (input.size()-offset > nfft && i <= length_symbols) {
+    while (input.size() > nfft+offset && i <= length_symbols) {
         std::vector<complex> sym(input.begin()+offset, input.begin()+offset+nfft);
         fft(&sym[0], nfft);
         for (int j=0; j<nfft; j++)
@@ -353,6 +385,7 @@ void WiFi80211::decodeFromLLR(const std::vector<int> &input, int length_bits, bi
 }
 
 void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResult> &output) const {
+    check_vector(input);
     output.clear();
     int endIndex = 0;
     std::vector<complex> working_buffer;
@@ -367,6 +400,7 @@ void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResu
         if (startIndex < endIndex) // we already successfully decoded this packet
             continue;
         working_buffer.assign(input.begin()+startIndex, input.end());
+        working_buffer.shrink_to_fit();
         if (working_buffer.size() <= minSize)
             continue;
         std::vector<complex> G;

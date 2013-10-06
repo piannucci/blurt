@@ -10,7 +10,6 @@
 #include "wifi80211.h"
 #include "portaudio.h"
 #include "pa_ringbuffer.h"
-#include "pa_util.h"
 #include <cassert>
 
 struct stereo {

@@ -189,7 +189,10 @@ int audioFIFO::callback(const void *inputBuffer, void *outputBuffer, size_t
         }
         else {
             stereo zero = 0;
-            memset_pattern8(out, &zero, n * sizeof(stereo));
+            for (int i=0; i<n; i++) {
+                out[i] = zero;
+                //lock_io(cerr) << (i + (out - (stereo *)outputBuffer)) << "/" << framesPerBuffer << endl;
+            }
         }
 
         current_output_index += n;
@@ -280,7 +283,7 @@ size_t audioFIFO::try_decode() {
         wifi.decode(input, results);
         if (results.size()) {
             auto l = lock_io(cerr) ;
-            l << "found " << results.size() << " frames: ";
+            l << string(results.size(), '>');
             endIndex = results.back().endIndex;
             unique_lock<mutex> rl(recv_mutex);
             for (auto result : results) {
@@ -289,9 +292,9 @@ size_t audioFIFO::try_decode() {
                 input_frames.push_back(result);
                 recv_condition.notify_one();
             }
-            l << endl;
         }
     } catch (...) {
+        lock_io(cerr) << "exception in try_decode" << endl;
     }
     if (endIndex)
         return endIndex;
@@ -358,7 +361,7 @@ audioFIFO::audioFIFO(double Fs, double Fc, int upsample_factor, const WiFi80211 
 }
 
 void audioFIFO::push_back(const frame & f) {
-    lock_io(cerr) << "queueing frame for transmission" << endl;
+    lock_io(cerr) << "<";
     unique_lock<mutex> sl(send_mutex);
     output_frames.push_back(f);
     send_condition.notify_one();
