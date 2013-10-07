@@ -319,39 +319,39 @@ size_t OFDMFrame::try_consume(const it begin, const it end) {
     size_t used = 0, usedTotal = 0;
     while (1) {
         switch (status) {
-            initialized:
+            case initialized:
                 if (!(used = try_coarse_train(begin+used, end)))
                     return usedTotal;
                 status = coarse_training_complete;
                 break;
 
-            coarse_training_complete:
+            case coarse_training_complete:
                 if (!(used = try_fine_train(begin+used, end)))
                     return usedTotal;
                 status = fine_training_complete;
                 break;
 
-            fine_training_complete:
+            case fine_training_complete:
                 if (!(used = try_consume_header(begin+used, end)))
                     return usedTotal;
                 status = header_complete;
                 break;
 
-            header_complete:
+            case header_complete:
                 if (!(used = try_consume_symbol(begin+used, end)))
                     return usedTotal;
                 status = (symbols_processed == length_symbols) ? payload_complete : header_complete;
                 break;
 
-            payload_complete:
+            case payload_complete:
                 if (!try_finish_decode())
                     status = error;
                 else
                     status = done;
                 return usedTotal;
 
-            done:
-            error:
+            case done:
+            case error:
                 return usedTotal;
         }
         usedTotal += used;

@@ -6,7 +6,6 @@
 #define throw std::cerr <<
 #endif
 
-#define VERSION	    "4.6"
 #define EPS	    1e-10
 #define MAXORDER    10
 
@@ -91,7 +90,7 @@ static dcomplex reflect(dcomplex);
 static void compute_bpres(), add_extra_zero();
 static void expandpoly(), expand(dcomplex[], int, dcomplex[]), multin(dcomplex, int, dcomplex[]);
 
-void mkfilter(const char *argv[], int &order_out, float alpha_out[], float beta_out[], float &gamma_out)
+void mkfilter(const char *argv[], size_t &order_out, float alpha_out[], float beta_out[], float &gamma_out)
 {
     readcmdline(argv);
     checkoptions();
@@ -128,11 +127,11 @@ void mkfilter(const char *argv[], int &order_out, float alpha_out[], float beta_
         (options & (opt_bp | opt_ap)) ? fc_gain :
         (options & opt_bs) ? sqrt(dc_gain * hf_gain) : dcomplex(1.0);
 
-    order_out = order;
+    order_out = (size_t)order;
     for (int i=0; i<zplane.numzeros+1; i++)
-        alpha_out[i] = xcoeffs[i];
+        alpha_out[i] = (float)xcoeffs[i];
     for (int i=0; i<zplane.numpoles+1; i++)
-        beta_out[i] = ycoeffs[i];
+        beta_out[i] = (float)ycoeffs[i];
     gamma_out = float(1./std::abs(gain));
 }
 
@@ -213,7 +212,7 @@ static unsigned int optbit(char c)
     }
 }
 
-static void usage() {
+static void usage() [[noreturn]] {
     throw "mkfilter: bad options; consult usage";
 }
 
@@ -268,7 +267,7 @@ static void checkoptions()
 
 static void setdefaults()
 {
-    if (!(options & opt_p)) polemask = ~0; /* use all poles */
+    if (!(options & opt_p)) polemask = (uint32_t)~0; /* use all poles */
     if (!(options & (opt_bp | opt_bs))) raw_alpha2 = raw_alpha1;
 }
 
@@ -302,7 +301,6 @@ static void compute_s() /* compute S-plane poles for prototype LP filter */
         if (chebrip >= 0.0)
         {
             throw "mkfilter: Chebyshev ripple must be < 0.0";
-            exit(1);
         }
         double rip = pow(10.0, -chebrip / 10.0);
         double eps = sqrt(rip - 1.0);
@@ -310,7 +308,6 @@ static void compute_s() /* compute S-plane poles for prototype LP filter */
         if (y <= 0.0)
         {
             throw "mkfilter: bug: Chebyshev y must be > 0.0";
-            exit(1);
         }
         double sh = sinh(y);
         double ch = cosh(y);

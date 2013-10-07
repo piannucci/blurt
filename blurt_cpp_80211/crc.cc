@@ -5,42 +5,43 @@
 
 void CRC::remainder_slow(const bitvector &a, bitvector &output) {
     bitvector c(a);
-    int C = c.size(), B = b.size();
-    for (int i=0; i<C-B+1; i++)
+    size_t C = c.size(), B = b.size();
+    for (size_t i=0; i<C-B+1; i++)
         if (c[i])
-            for (int j=0; j<B; j++)
+            for (size_t j=0; j<B; j++)
                 c[i+j] = c[i+j] ^ b[j];
-    output.assign(c.rbegin(), c.rbegin()+(B-1));
+    output.assign(c.rbegin(), c.rbegin()+(ssize_t)(B-1));
 }
 
 uint32_t CRC::remainder_fast(const bitvector &a, bitvector &output) const {
-    int N = a.size(), A = (N+L-1)/L;
-    std::vector<int> a_words(A);
-    for (int i=0; i<A; i++) {
-        int x = 0, k = N-1-i*L;
-        for (int j=0; j<L && j <= k; j++)
-            x += a[k-j] << j;
+    size_t N = a.size(), A = (N+L-1)/L;
+    std::vector<uint32_t> a_words(A);
+    for (size_t i=0; i<A; i++) {
+        uint32_t x = 0;
+        size_t k = N-1-i*L;
+        for (size_t j=0; j<L && j <= k; j++)
+            x += (uint32_t)a[k-j] << j;
         a_words[A-1-i] = x;
     }
     uint32_t r = 0;
-    for (int i=0; i<A; i++)
+    for (size_t i=0; i<A; i++)
         r = ((r << L) & m) ^ a_words[i] ^ lut[r >> s];
     output.resize(M);
-    for (int i=0; i<M; i++)
+    for (size_t i=0; i<M; i++)
         output[i] = (r >> (M-1-i)) & 1;
     return r;
 }
 
-void CRC::lut_bootstrap(const bitvector &new_b, int new_L) {
+void CRC::lut_bootstrap(const bitvector &new_b, size_t new_L) {
     b.assign(new_b.begin(), new_b.end());
-    int new_M = b.size()-1;
+    size_t new_M = b.size()-1;
     std::vector<uint32_t> new_lut(1<<new_L);
     if (L == 0) {
         // no look-up table; fall back on slow code
-        std::vector<int> results;
-        for (int i=0; i<1<<new_L; i++) {
-            std::vector<int> num(1);
-            num[0] = i;
+        std::vector<uint32_t> results;
+        for (size_t i=0; i<1<<new_L; i++) {
+            std::vector<uint32_t> num(1);
+            num[0] = (uint32_t)i;
             bitvector a;
             shiftout(num, new_L, a);
             std::reverse(a.begin(), a.end());
@@ -52,9 +53,9 @@ void CRC::lut_bootstrap(const bitvector &new_b, int new_L) {
         }
     } else {
         bitvector bits;
-        for (int i=0; i<1<<new_L; i++) {
-            std::vector<int> num(1);
-            num[0] = i;
+        for (size_t i=0; i<1<<new_L; i++) {
+            std::vector<uint32_t> num(1);
+            num[0] = (uint32_t)i;
             bitvector a;
             shiftout(num, new_L, a);
             std::reverse(a.begin(), a.end());
@@ -66,17 +67,17 @@ void CRC::lut_bootstrap(const bitvector &new_b, int new_L) {
     M = new_M;
     L = new_L;
     s = M-L;
-    m = (1ull<<M)-1;
+    m = (uint32_t)((1ull<<M)-1);
 }
 
 void CRC::FCS(const bitvector &calculationFields, bitvector &output) const {
     bitvector a;
     a.assign(calculationFields.begin(), calculationFields.end());
     a.resize(a.size() + 32);
-    for (int i=0; i<32; i++)
+    for (size_t i=0; i<32; i++)
         a[i] = !a[i];
     remainder_fast(a, output);
-    for (int i=0; i<output.size(); i++)
+    for (size_t i=0; i<output.size(); i++)
         output[i] = !output[i];
 }
 
@@ -84,7 +85,7 @@ bool CRC::checkFCS(const bitvector &frame) const {
     bitvector a;
     a.assign(frame.begin(), frame.end());
     a.resize(a.size() + 32);
-    for (int i=0; i<32; i++)
+    for (size_t i=0; i<32; i++)
         a[i] = !a[i];
     bitvector output;
     remainder_fast(a, output);
@@ -94,7 +95,8 @@ bool CRC::checkFCS(const bitvector &frame) const {
 static const bool CRC32_802_11_FCS_G[] = {1,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,1,0,0,0,1,1,1,0,1,1,0,1,1,0,1,1,1};
 static const bool CRC32_802_11_FCS_remainder[] = {1,1,0,0,0,1,1,1,0,0,0,0,0,1,0,0,1,1,0,1,1,1,0,1,0,1,1,1,1,0,1,1};
 
-CRC::CRC() : correct_remainder(CRC32_802_11_FCS_remainder, CRC32_802_11_FCS_remainder+32), L(0) {
+CRC::CRC()
+    : L(0), correct_remainder(CRC32_802_11_FCS_remainder, CRC32_802_11_FCS_remainder+32) {
     bitvector G(CRC32_802_11_FCS_G, CRC32_802_11_FCS_G+33);
     lut_bootstrap(G, 8);
     lut_bootstrap(G, 16);

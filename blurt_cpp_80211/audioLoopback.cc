@@ -39,43 +39,43 @@ void die_vector(const vector<T> & output) {
 void processOutput(const vector<fcomplex> &input,
                    double Fs,
                    double Fc,
-                   int upsample_factor,
+                   size_t upsample_factor,
                    const vector<float> &mask_noise,
                    vector<stereo> &output) {
     vector<fcomplex> upsampled_output;
     upsample(input, upsample_factor, upsampled_output);
 
     vector<float> modulated_output(upsampled_output.size());
-    for (int i=0; i<upsampled_output.size(); i++)
-        modulated_output[i] = real(upsampled_output[i] * expj((2*pi*Fc*i)/Fs));
+    for (size_t i=0; i<upsampled_output.size(); i++)
+        modulated_output[i] = real(upsampled_output[i] * expj(float((2*pi*Fc*i)/Fs)));
 
     vector<float> amplitude(modulated_output.size());
-    for (int i=0; i<modulated_output.size(); i++)
-        amplitude[i] = fabs(modulated_output[i]);
+    for (size_t i=0; i<modulated_output.size(); i++)
+        amplitude[i] = fabsf(modulated_output[i]);
 
-    size_t idx = (int)(amplitude.size() * .95);
-    nth_element(amplitude.begin(), amplitude.begin() + idx, amplitude.end());
+    size_t idx = size_t(amplitude.size() * .95f);
+    nth_element(amplitude.begin(), amplitude.begin() + (ssize_t)idx, amplitude.end());
     float percentile_95_amplitude = amplitude[idx];
 
     vector<float> scaled_output(modulated_output.size());
-    for (int i=0; i<modulated_output.size(); i++)
-        scaled_output[i] = modulated_output[i] * 0.5 / percentile_95_amplitude;
+    for (size_t i=0; i<modulated_output.size(); i++)
+        scaled_output[i] = modulated_output[i] * 0.5f / percentile_95_amplitude;
 
     // output = np.r_[output, np.zeros(int(.1*loopback_Fs))]
 
     if (mask_noise.size()) {
         if (mask_noise.size() > scaled_output.size())
             scaled_output.resize(mask_noise.size());
-        for (int i=0; i<mask_noise.size(); i++)
+        for (size_t i=0; i<mask_noise.size(); i++)
             scaled_output[i] += mask_noise[i];
     }
 
     // delay one channel slightly relative to the other:
     // this breaks up the spatially-dependent frequency-correlated
     // nulls of our speaker array
-    size_t delay_samples = (int)(delay * Fs);
+    size_t delay_samples = size_t(delay * Fs);
     output.resize(delay_samples + scaled_output.size());
-    for (int i=0; i<scaled_output.size() + delay_samples; i++) {
+    for (size_t i=0; i<scaled_output.size() + delay_samples; i++) {
         output[i] = stereo{i < delay_samples ? 0 : scaled_output[i-delay_samples],
                            i < scaled_output.size() ? scaled_output[i] : 0};
     }
@@ -84,21 +84,21 @@ void processOutput(const vector<fcomplex> &input,
 void processInput(const vector<stereo> &input,
                   double Fs,
                   double Fc,
-                  int upsample_factor,
+                  size_t upsample_factor,
                   vector<fcomplex> &output) {
     vector<fcomplex> baseband_signal(input.size());
-    for (int i=0; i<input.size(); i++)
-        baseband_signal[i] = fcomplex(.5 * (input[i].l + input[i].r), 0) * expj(-(2*pi*Fc*i)/Fs);
-    int order = 6;
+    for (size_t i=0; i<input.size(); i++)
+        baseband_signal[i] = fcomplex(.5f * (input[i].l + input[i].r), 0) * expj(float(-(2*pi*Fc*i)/Fs));
+    size_t order = 6;
     string order_str = to_string(order);
     string cutoff_str = to_string(.8 / upsample_factor);
     const char *args[] = {"", "-Bu", "-Lp", "-o", order_str.c_str(), "-a", cutoff_str.c_str(), 0};
     IIRFilter<fcomplex> lp(args);
     vector<fcomplex> filtered_signal;
     lp.apply(baseband_signal, filtered_signal);
-    output.resize(int(filtered_signal.size()/upsample_factor));
-    for (int i=0; i<output.size(); i++)
-        output[i] = filtered_signal[int(i*upsample_factor)];
+    output.resize(size_t(filtered_signal.size()/(float)upsample_factor));
+    for (size_t i=0; i<output.size(); i++)
+        output[i] = filtered_signal[i*upsample_factor];
 }
 
 packetProducer::packetProducer() {
@@ -111,12 +111,12 @@ frame packetProducer::nextPacket() {
     auto u = uniform_int_distribution<>('A', 'Z');
     auto uniform = bind(u, engine);
     generate(octets.begin(), octets.end(), uniform);
-    int step = permutation[i] / N_per_step;
+    size_t step = permutation[i] / N_per_step;
     if (step >= steps)
         return {"",0,0};
-    snprintf(&octets[0], 9, "%06ds%02d", i, step);
+    snprintf(&octets[0], 9, "%06zds%02zd", i, step);
     double level = (step / 8) * 2.5 - 5.0;
-    int rate = step % 8;
+    size_t rate = step % 8;
     if (i % N_per_step == 0) {
         double pct = double(i) / (N_per_step * steps) * 100.;
         lock_io(cerr) << i << "/" << N_per_step * steps << " (" << pct << "%)";
@@ -125,10 +125,10 @@ frame packetProducer::nextPacket() {
     return {octets, rate, level};
 }
 
-packetTransmitter::packetTransmitter(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi)
-    : Fs(Fs), Fc(Fc), upsample_factor(upsample_factor), wifi(wifi) {
+packetTransmitter::packetTransmitter(double Fs_, double Fc_, size_t upsample_factor_, const WiFi80211 & wifi_)
+    : Fs(Fs_), Fc(Fc_), upsample_factor(upsample_factor_), wifi(wifi_) {
     cutoff = Fc - Fs/upsample_factor;
-    const int order = 6;
+    const size_t order = 6;
     string order_str = to_string(order);
     string cutoff_str = to_string(cutoff/Fs);
     const char *args[] = {"", "-Bu", "-Hp", "-o", order_str.c_str(), "-a", cutoff_str.c_str(), 0};
@@ -141,12 +141,12 @@ packetTransmitter::~packetTransmitter() {
 
 void packetTransmitter::encode(const frame & f, vector<stereo> & output) {
     vector<fcomplex> encoded_output;
-    vector<int> octets_vector(f.contents.cbegin(), f.contents.cend());
+    vector<uint8_t> octets_vector(f.contents.cbegin(), f.contents.cend());
     wifi.encode(octets_vector, f.rate, encoded_output);
     vector<stereo> acoustic_output;
     processOutput(encoded_output, Fs, Fc, upsample_factor, mask_noise, acoustic_output);
     double gain = pow(10., (f.gain_dB - 15.0) / 20.);
-    for (int i=0; i<acoustic_output.size(); i++) {
+    for (size_t i=0; i<acoustic_output.size(); i++) {
         acoustic_output[i].l *= gain;
         acoustic_output[i].r *= gain;
     }
@@ -165,14 +165,14 @@ int audioFIFO::myCallback( const void *inputBuffer, void *outputBuffer, size_t
 }
 
 int audioFIFO::callback(const void *inputBuffer, void *outputBuffer, size_t
-    framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
-    PaStreamCallbackFlags statusFlags) {
+    framesPerBuffer_, const PaStreamCallbackTimeInfo*,
+    PaStreamCallbackFlags) {
 
     callbacks++;
     const stereo *in  = (const stereo *)inputBuffer;
     stereo *out = (stereo *)outputBuffer;    
 
-    size_t outputFrames = framesPerBuffer;
+    size_t outputFrames = framesPerBuffer_;
     while (outputFrames) {
         if (!current_output_buffer && output_audio.read_available()) {
             output_audio.get(current_output_buffer);
@@ -189,7 +189,7 @@ int audioFIFO::callback(const void *inputBuffer, void *outputBuffer, size_t
         }
         else {
             stereo zero = 0;
-            for (int i=0; i<n; i++) {
+            for (size_t i=0; i<n; i++) {
                 out[i] = zero;
                 //lock_io(cerr) << (i + (out - (stereo *)outputBuffer)) << "/" << framesPerBuffer << endl;
             }
@@ -205,7 +205,7 @@ int audioFIFO::callback(const void *inputBuffer, void *outputBuffer, size_t
         }
     }
 
-    size_t inputFrames = framesPerBuffer;
+    size_t inputFrames = framesPerBuffer_;
     while (inputFrames) {
         if (!current_input_buffer && input_audio_ready.read_available()) {
             input_audio_ready.get(current_input_buffer);
@@ -264,7 +264,7 @@ void audioFIFO::encoder_thread_func() {
             vector<stereo> *output = new vector<stereo>;
             transmitter.encode(output_frame, *output);
             sl.lock();
-            output->resize(output->size() + int(Fs*.1));
+            output->resize(output->size() + size_t(Fs*.1));
             output_frames.pop_front();
             if (!output_audio.put(output))
                 delete output; // no room in queue
@@ -300,7 +300,6 @@ size_t audioFIFO::try_decode() {
         return endIndex;
     else
         return trigger/2;
-    return trigger/2;
 }
 
 void audioFIFO::decoder_thread_func() {
@@ -315,8 +314,8 @@ void audioFIFO::decoder_thread_func() {
 
             const double s = -2 * M_PI * Fc / Fs;
             vector<fcomplex> baseband_input(input->size());
-            for (int i=0; i<input->size(); i++)
-                baseband_input[i] = (float)(*input)[i] * expj(s * (i + decoder_carrier_phase));
+            for (size_t i=0; i<input->size(); i++)
+                baseband_input[i] = (float)(*input)[i] * expj(float(s * (i + decoder_carrier_phase)));
             decoder_carrier_phase += input->size();
 
             // filter
@@ -324,11 +323,11 @@ void audioFIFO::decoder_thread_func() {
             decoder_lowpass_filter->apply(baseband_input, baseband_filtered);
 
             // downsample
-            int first_sample = decoder_downsample_phase;
-            int end_sample = ((baseband_filtered.size() - first_sample + upsample_factor - 1) / upsample_factor) * upsample_factor;
+            size_t first_sample = decoder_downsample_phase;
+            size_t end_sample = ((baseband_filtered.size() - first_sample + upsample_factor - 1) / upsample_factor) * upsample_factor;
             decoder_downsample_phase = (end_sample - baseband_filtered.size()) % upsample_factor;
             vector<fcomplex> downsampled((end_sample-first_sample) / upsample_factor);
-            for (int i=0,j=first_sample; i<downsampled.size(); i++, j+=upsample_factor)
+            for (size_t i=0,j=first_sample; i<downsampled.size(); i++, j+=upsample_factor)
                 downsampled[i] = baseband_filtered[j];
 
             baseband_signal.push_back(downsampled);
@@ -345,8 +344,8 @@ void audioFIFO::decoder_thread_func() {
     lock_io(cerr) << "decoder finished" << endl;
 }
 
-audioFIFO::audioFIFO(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi)
-    : Fs(Fs), Fc(Fc), upsample_factor(upsample_factor), wifi(wifi) {
+audioFIFO::audioFIFO(double Fs_, double Fc_, size_t upsample_factor_, const WiFi80211 & wifi_)
+    : Fs(Fs_), Fc(Fc_), upsample_factor(upsample_factor_), wifi(wifi_) {
     nanny_thread = thread(&audioFIFO::nanny_thread_func, this);
     encoder_thread = thread(&audioFIFO::encoder_thread_func, this);
     decoder_thread = thread(&audioFIFO::decoder_thread_func, this);

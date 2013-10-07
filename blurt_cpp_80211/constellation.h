@@ -5,9 +5,9 @@
 
 class Constellation {
 protected:
-    Constellation(int Nbpsc);
+    Constellation(size_t Nbpsc);
 public:
-    int Nbpsc;
+    size_t Nbpsc;
     std::vector<complex> symbols;
     void map(const bitvector &input, std::vector<complex> &output) const;
     void demap(const std::vector<complex> &input, float dispersion, std::vector<int> &output) const;

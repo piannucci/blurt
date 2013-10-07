@@ -4,6 +4,6 @@
 
 class QAM : public Constellation {
 public:
-    QAM(int Nbpsc);
+    QAM(size_t Nbpsc);
 };
 #endif

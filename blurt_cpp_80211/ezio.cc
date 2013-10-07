@@ -14,11 +14,10 @@ void writeall( const int fd, const string & buf )
                 buf.data() + total_bytes_written,
                 buf.size() - total_bytes_written );
 
-        if ( bytes_written < 0 ) {
+        if (bytes_written < 0)
             throw "write";
-        } else {
-            total_bytes_written += bytes_written;
-        }
+
+        total_bytes_written += (size_t)bytes_written;
     }
 }
 
@@ -31,13 +30,11 @@ std::string readall( const int fd )
 
     ssize_t bytes_read = read( fd, &buffer, read_chunk_size );
 
-    if ( bytes_read == 0 ) {
-        /* end of file = client has closed their side of connection */
-        return string();
-    } else if ( bytes_read < 0 ) {
+    if ( bytes_read == 0 )
+        return string(); // end of file = client has closed their side of connection
+
+    if ( bytes_read < 0 )
         throw "read";
-    } else {
-        /* successful read */
-        return string( buffer, bytes_read );
-    }
+
+    return string( buffer, (size_t)bytes_read );
 }

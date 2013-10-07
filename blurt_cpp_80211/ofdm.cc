@@ -2,16 +2,16 @@
 #include "fft.h"
 #include <cmath>
 
-void trainingSequenceFromFreq(const std::vector<complex> &ts_freq, int reps, int ncp, std::vector<complex> &ts_time) {
-    int nfft = ts_freq.size();
-    int tilesNeeded = (ncp*reps + nfft-1) / nfft + reps + 1; // +1 for cross-fade
+static void trainingSequenceFromFreq(const std::vector<complex> &ts_freq, size_t reps, size_t ncp, std::vector<complex> &ts_time) {
+    size_t nfft = ts_freq.size();
+    size_t tilesNeeded = (ncp*reps + nfft-1) / nfft + reps + 1; // +1 for cross-fade
     std::vector<complex> ts(ts_freq);
     ifft(&ts[0], nfft);
-    int start = (-(ncp*reps) % nfft + nfft) % nfft; // mod with round towards negative infinity
+    size_t start = (-(ncp*reps) % nfft + nfft) % nfft; // mod with round towards negative infinity
     ts.reserve(nfft*tilesNeeded); // make sure no reallocations while tiling
-    for (int i=1; i<tilesNeeded; i++)
-        ts.insert(ts.end(), ts.begin(), ts.begin() + nfft); // tile out training sequence
-    ts_time.assign(ts.begin() + start, ts.end()-(nfft-1));
+    for (size_t i=1; i<tilesNeeded; i++)
+        ts.insert(ts.end(), ts.begin(), ts.begin() + (ssize_t)nfft); // tile out training sequence
+    ts_time.assign(ts.begin() + (ssize_t)start, ts.end()-ssize_t(nfft-1));
 }
 
 OFDMFormat audioLTFormat() {
@@ -23,8 +23,8 @@ OFDMFormat audioLTFormat() {
     complex sts_unit = float(sqrt(13./6.)) * complex(1,1);
     int sts_nonzero_idx[] = {4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4};
     complex sts_nonzero_phase[] = {-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1};
-    for (int i=0; i<sizeof(sts_nonzero_idx)/sizeof(int); i++)
-        f.sts_freq[(sts_nonzero_idx[i]+f.nfft)%f.nfft] = sts_unit * sts_nonzero_phase[i];
+    for (size_t i=0; i<sizeof(sts_nonzero_idx)/sizeof(int); i++)
+        f.sts_freq[size_t(sts_nonzero_idx[i]+(int)f.nfft)%f.nfft] = sts_unit * sts_nonzero_phase[i];
     trainingSequenceFromFreq(f.sts_freq, f.ts_reps, f.ncp, f.sts_time);
     complex lts_freq_vals[] = {
         0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
@@ -59,43 +59,43 @@ complex PilotPolarity::next() {
 
 void stitch(const std::vector<std::vector<complex> > &input, std::vector<complex> &output) {
     size_t count = 1;
-    for (int i=0; i<input.size(); i++)
+    for (size_t i=0; i<input.size(); i++)
         count += input[i].size() - 1;
     output.assign(count, 0);
-    int j = 0;
+    size_t j = 0;
     std::vector<complex> y;
-    for (int i=0; i<input.size(); i++) {
+    for (size_t i=0; i<input.size(); i++) {
         y.assign(input[i].begin(), input[i].end());
         y[0] *= .5;
         y[y.size()-1] *= .5;
-        for (int k=0; k<y.size(); k++)
+        for (size_t k=0; k<y.size(); k++)
             output[j+k] += y[k];
         j += y.size()-1;
     }
 }
 
-OFDM::OFDM(const OFDMFormat &format) : format(format) {
+OFDM::OFDM(const OFDMFormat &format_) : format(format_) {
 }
 
 void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &output) const {
     PilotPolarity pilotPolarity;
     std::vector<std::vector<complex> > output_chunks;
-    int tilesNeeded = (format.ncp+format.nfft-1) / format.nfft + 2; // +1 for symbol, +1 for cross-fade
-    int start = (-format.ncp % format.nfft + format.nfft) % format.nfft;
+    size_t tilesNeeded = (format.ncp+format.nfft-1) / format.nfft + 2; // +1 for symbol, +1 for cross-fade
+    size_t start = (-format.ncp % format.nfft + format.nfft) % format.nfft;
     output_chunks.push_back(format.sts_time);
     output_chunks.push_back(format.lts_time);
-    for (int i=0; i<input.size(); i+=format.Nsc) {
+    for (size_t i=0; i<input.size(); i+=format.Nsc) {
         std::vector<complex> symbol(format.nfft, 0);
-        for (int j=0; j<format.dataSubcarriers.size(); j++)
+        for (size_t j=0; j<format.dataSubcarriers.size(); j++)
             symbol[format.dataSubcarriers[j]] = input[i+j];
         complex polarity = pilotPolarity.next();
-        for (int j=0; j<format.pilotSubcarriers.size(); j++)
+        for (size_t j=0; j<format.pilotSubcarriers.size(); j++)
             symbol[format.pilotSubcarriers[j]] = format.pilotTemplate[j] * polarity;
         ifft(&symbol[0], format.nfft);
         symbol.reserve(format.nfft*tilesNeeded);
-        for (int i=1; i<tilesNeeded; i++)
-            symbol.insert(symbol.end(), symbol.begin(), symbol.begin() + format.nfft);
-        output_chunks.push_back(std::vector<complex>(symbol.begin()+start, symbol.end()-(format.nfft-1)));
+        for (size_t k=1; k<tilesNeeded; k++)
+            symbol.insert(symbol.end(), symbol.begin(), symbol.begin() + (ssize_t)format.nfft);
+        output_chunks.push_back(std::vector<complex>(symbol.begin()+(ssize_t)start, symbol.end()-(ssize_t)(format.nfft-1)));
     }
     stitch(output_chunks, output);
 }

@@ -10,7 +10,7 @@
 #define pi 3.141592653589793238462f
 #define dpi 3.141592653589793238462
 
-typedef std::vector<char> bitvector;
+typedef std::vector<uint8_t> bitvector;
 typedef std::complex<float> complex;
 typedef complex fcomplex;
 typedef std::complex<double> dcomplex;

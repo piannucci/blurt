@@ -4,5 +4,5 @@
 
 #define MAXPZ	    512
 
-void mkfilter(const char *argv[], int &order_out, float alpha_out[], float beta_out[], float &gamma_out);
+void mkfilter(const char *argv[], size_t &order_out, float alpha_out[], float beta_out[], float &gamma_out);
 #endif

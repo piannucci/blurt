@@ -11,8 +11,8 @@ bool matrix_2_1[] = {0,0,0,1,0,0,1,0};
 
 #define ASSIGN_VECTOR(target, source) target.assign(source, source+sizeof(source)/sizeof(source[0]))
 
-PuncturingMask::PuncturingMask(int numerator, int denominator)
-    : numerator(numerator), denominator(denominator)
+PuncturingMask::PuncturingMask(size_t numerator_, size_t denominator_)
+    : numerator(numerator_), denominator(denominator_)
 {
     if (numerator == 1 && denominator == 2)
         ASSIGN_VECTOR(mask, matrix_1_2);
@@ -33,25 +33,25 @@ PuncturingMask::PuncturingMask(int numerator, int denominator)
 }
 
 void PuncturingMask::puncture(const bitvector &input, bitvector &output) const {
-    int count = 0;
-    int N = input.size(), M = mask.size();
-    for (int i=0; i<N; i++)
+    size_t count = 0;
+    size_t N = input.size(), M = mask.size();
+    for (size_t i=0; i<N; i++)
         count += mask[i % M];
     output.resize(count);
-    int j=0;
-    for (int i=0; i<N; i++)
+    size_t j=0;
+    for (size_t i=0; i<N; i++)
         if (mask[i % M])
             output[j++] = input[i];
 }
 
 void PuncturingMask::depuncture(const std::vector<int> &input, std::vector<int> &output) const {
-    int N = input.size(), M = mask.size();
-    int m = 0;
-    for (int i=0; i<M; i++)
+    size_t N = input.size(), M = mask.size();
+    size_t m = 0;
+    for (size_t i=0; i<M; i++)
         m += mask[i];
-    int L = ((N + m - 1) / m) * M;
+    size_t L = ((N + m - 1) / m) * M;
     output.resize(L);
-    int j = 0;
-    for (int i=0; i<L; i++)
+    size_t j = 0;
+    for (size_t i=0; i<L; i++)
         output[i] = (mask[i % M]) ? input[j++] : 0;
 }

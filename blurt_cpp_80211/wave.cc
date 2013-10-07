@@ -20,7 +20,7 @@ const static int WAVE_FORMAT_PCM = 0x0001;
 
 class Wave_read {
 private:
-    int framesize;
+    size_t framesize;
     Chunk file_chunk, *data_chunk;
 
     void read_fmt_chunk(Chunk &chunk) {
@@ -38,11 +38,11 @@ private:
         framesize = nchannels * sampwidth;
         comptype = "NONE";
         compname = "not compressed";
-    };
+    }
 
 public:
     std::string comptype, compname;
-    int nframes, nchannels, framerate, sampwidth;
+    size_t nframes, nchannels, framerate, sampwidth;
 
     Wave_read(std::ifstream &file) : file_chunk(file)
     {
@@ -55,7 +55,7 @@ public:
         if (format.compare("WAVE") != 0)
             throw "not a WAVE file";
         file_chunk.parseSubchunks();
-        for (int i=0; i<file_chunk.subchunks.size(); i++) {
+        for (size_t i=0; i<file_chunk.subchunks.size(); i++) {
             Chunk &chunk = file_chunk.subchunks[i];
             if (chunk.id.compare("fmt ") == 0) {
                 read_fmt_chunk(chunk);
@@ -71,19 +71,19 @@ public:
         }
         if (!fmt_chunk_read || !data_chunk_read)
             throw "fmt chunk and/or data chunk missing";
-    };
+    }
 
     ~Wave_read() {
         close();
-    };
+    }
 
     void close() {
         file_chunk.close();
-    };
+    }
 
-    void readframes(void *buffer, size_t nframes) {
-        data_chunk->read(buffer, nframes * framesize);
-    };
+    void readframes(void *buffer, size_t nframes_) {
+        data_chunk->read(buffer, nframes_ * framesize);
+    }
 };
 
 class Wave_write {
@@ -92,49 +92,49 @@ private:
     Chunk file_chunk, *data_chunk;
 
 public:
-    int nframes, nchannels, framerate, sampwidth;
+    size_t nframes, nchannels, framerate, sampwidth;
     std::string comptype, compname;
 
     Wave_write(std::ofstream &file) :
-        file_chunk(file, "RIFF"), nframes(0), nchannels(0), sampwidth(0), framerate(0),
+        file_chunk(file, "RIFF"), nframes(0), nchannels(0), framerate(0), sampwidth(0),
         comptype("NONE"), compname("not compressed")
     {
         headerwritten = false;
         file_chunk.write((char *)"WAVE", 4);
-    };
+    }
 
     ~Wave_write() {
         close();
-    };
+    }
 
-    void setnchannels(int nchannels) {
+    void setnchannels(size_t nchannels_) {
         if (headerwritten) throw "cannot change parameters after starting to write";
-        if (nchannels < 1) throw "bad # of channels";
-        this->nchannels = nchannels;
-    };
+        if (nchannels_ < 1) throw "bad # of channels";
+        this->nchannels = nchannels_;
+    }
 
-    void setsampwidth(int sampwidth) {
+    void setsampwidth(size_t sampwidth_) {
         if (headerwritten) throw "cannot change parameters after starting to write";
-        if (sampwidth < 1 || sampwidth > 4) throw "bad sample width";
-        this->sampwidth = sampwidth;
-    };
+        if (sampwidth_ < 1 || sampwidth_ > 4) throw "bad sample width";
+        this->sampwidth = sampwidth_;
+    }
 
-    void setframerate(int framerate) {
+    void setframerate(size_t framerate_) {
         if (headerwritten) throw "cannot change parameters after starting to write";
-        if (framerate <= 0) throw "bad frame rate";
-        this->framerate = framerate;
-    };
+        if (framerate_ <= 0) throw "bad frame rate";
+        this->framerate = framerate_;
+    }
 
-    void writeframes(void *data, size_t nframes) {
-        size_t bytes = nframes * sampwidth * nchannels;
+    void writeframes(void *data, size_t nframes_) {
+        size_t bytes = nframes_ * sampwidth * nchannels;
         _ensure_header_written();
         data_chunk->write(data, bytes);
-    };
+    }
 
     void close() {
         _ensure_header_written();
         file_chunk.close();
-    };
+    }
 
     void _ensure_header_written() {
         if (!headerwritten) {
@@ -146,17 +146,17 @@ public:
 
             WaveFormatEx fmt;
             fmt.wFormatTag = WAVE_FORMAT_PCM;
-            fmt.wChannels = nchannels;
-            fmt.dwFrameRate = framerate;
-            fmt.dwAvgBytesPerSec = nchannels * framerate * sampwidth;
-            fmt.wBlockAlign = nchannels * sampwidth;
-            fmt.wBitsPerSample = sampwidth * 8;
+            fmt.wChannels = (uint16_t)nchannels;
+            fmt.dwFrameRate = (uint32_t)framerate;
+            fmt.dwAvgBytesPerSec = (uint32_t)(nchannels * framerate * sampwidth);
+            fmt.wBlockAlign = (uint16_t)(nchannels * sampwidth);
+            fmt.wBitsPerSample = (uint16_t)(sampwidth * 8);
             fmt_chunk.write(&fmt, 16);
 
             data_chunk = &file_chunk.addSubchunk("data");
             headerwritten = true;
         }
-    };
+    }
 };
 
 bool readwave(const std::string &filename, std::vector<float> &output, float &Fs) {
@@ -168,16 +168,16 @@ bool readwave(const std::string &filename, std::vector<float> &output, float &Fs
     }
     Wave_read f(file);
     Fs = f.framerate;
-    int nchannels = f.nchannels;
-    int nframes = f.nframes;
-    int sampwidth = f.sampwidth;
+    size_t nchannels = f.nchannels;
+    size_t nframes = f.nframes;
+    size_t sampwidth = f.sampwidth;
     output.resize(nframes);
-    char readbuf[sampwidth*nchannels];
+    char *readbuf = new char[sampwidth*nchannels];
     float scale = 1.f/nchannels;
-    for (int i=0; i<nframes; i++) {
+    for (size_t i=0; i<nframes; i++) {
         float acc = 0;
         f.readframes(readbuf, 1);
-        for (int j=0; j<nchannels; j++) {
+        for (size_t j=0; j<nchannels; j++) {
             int32_t sample = 0;
             memcpy(&sample, &readbuf[j*sampwidth], sampwidth);
             if (sampwidth == 1)
@@ -191,18 +191,19 @@ bool readwave(const std::string &filename, std::vector<float> &output, float &Fs
         }
         output[i] = acc;
     }
+    delete [] readbuf;
     return true;
 }
 
-bool writewave(const std::string &filename, const std::vector<float> &input, int Fs, int sampwidth, int nchannels) {
+bool writewave(const std::string &filename, const std::vector<float> &input, size_t Fs, size_t sampwidth, size_t nchannels) {
     std::ofstream file(filename.c_str(), std::fstream::out | std::fstream::binary);
     if (!file.is_open()) {
         return false;
     }
-    int nframes = input.size()/nchannels;
+    size_t nframes = input.size()/nchannels;
     float scale = 1ull<<(8*sampwidth);
     std::vector<char> quantized_input(input.size()*sampwidth);
-    for (int i=0; i<input.size(); i++) {
+    for (size_t i=0; i<input.size(); i++) {
         float clipped_input = input[i];
         clipped_input = (clipped_input > 1.f) ? 1.f : clipped_input;
         clipped_input = (clipped_input < -1.f) ? -1.f : clipped_input;

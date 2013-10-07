@@ -16,7 +16,7 @@ struct stereo {
     float l, r;
     stereo() : l(0), r(0) {}
     stereo(float lr) : l(lr), r(lr) {}
-    stereo(float l, float r) : l(l), r(r) {}
+    stereo(float l_, float r_) : l(l_), r(r_) {}
     const stereo & operator += (const stereo & b) { l+=b.l; r+=b.r; return *this; }
     operator float() const { return .5f*(l+r); }
 };
@@ -42,7 +42,7 @@ template <class S>
 struct lock_ios {
     S & s;
     unique_lock<mutex> l = unique_lock<mutex>(cerr_mutex);
-    lock_ios(S & s) : s(s) {}
+    lock_ios(S & s_) : s(s_) {}
     template <typename U>
     lock_ios & operator<<(U && u) { s << u; return *this; }
 
@@ -56,29 +56,29 @@ lock_ios<S> lock_io(S & s) { return lock_ios<S>(s); }
 void processOutput(const vector<fcomplex> &input,
                    double Fs,
                    double Fc,
-                   int upsample_factor,
+                   size_t upsample_factor,
                    const vector<float> &mask_noise,
                    vector<stereo> &output);
 
 void processInput(const vector<stereo> &input,
                   double Fs,
                   double Fc,
-                  int upsample_factor,
+                  size_t upsample_factor,
                   vector<fcomplex> &output);
 
 struct frame {
     string contents;
-    int rate;
+    size_t rate;
     double gain_dB;
 };
 
 class packetProducer {
     public:
-        const int length = 16;
-        int i = 0;
-        int N_per_step = 100;
-        int steps = 8 * 9;
-        vector<int> permutation = {N_per_step * steps};
+        const size_t length = 16;
+        size_t i = 0;
+        size_t N_per_step = 100;
+        size_t steps = 8 * 9;
+        vector<size_t> permutation = vector<size_t>(N_per_step * steps);
         packetProducer();
         frame nextPacket();
 };
@@ -98,9 +98,9 @@ struct circularBuffer {
         if (N) {
             size_t M = min(N, maximum - write_idx);
             if (M)
-                copy(input.begin(), input.begin() + M, buffer.begin() + write_idx);
+                copy(input.begin(), input.begin() + (ssize_t)M, buffer.begin() + (ssize_t)write_idx);
             if (N-M)
-                copy(input.begin() + M, input.begin() + N, buffer.begin());
+                copy(input.begin() + (ssize_t)M, input.begin() + (ssize_t)N, buffer.begin());
             write_idx = (write_idx + N) % maximum;
             length += N;
         }
@@ -112,9 +112,9 @@ struct circularBuffer {
         if (N) {
             size_t M = min(N, maximum - read_idx);
             if (M)
-                copy(buffer.begin() + read_idx, buffer.begin() + read_idx + M, output.begin());
+                copy(buffer.begin() + (ssize_t)read_idx, buffer.begin() + (ssize_t)(read_idx + M), output.begin());
             if (N-M)
-                copy(buffer.begin(), buffer.begin() + N - M, output.begin() + M);
+                copy(buffer.begin(), buffer.begin() + (ssize_t)(N - M), output.begin() + (ssize_t)M);
         }
     }
 
@@ -124,7 +124,7 @@ struct circularBuffer {
         length -= N;
     }
 
-    circularBuffer(size_t maximum) : maximum(maximum) {}
+    circularBuffer(size_t maximum_) : maximum(maximum_) {}
 };
 
 template <class T>
@@ -133,13 +133,12 @@ class lockFreeRingBuffer {
     T * buf = new T[cap];
     PaUtilRingBuffer r;
 public:
-    lockFreeRingBuffer(int cap=256) : cap(cap) {
-        assert(buf);
+    lockFreeRingBuffer(int cap_=256) : cap(cap_) {
         PaUtil_InitializeRingBuffer(&r, sizeof(T), cap, buf);
     }
     ~lockFreeRingBuffer() { delete [] buf; }
-    size_t read_available() { return PaUtil_GetRingBufferReadAvailable(&r); }
-    size_t write_available() { return PaUtil_GetRingBufferWriteAvailable(&r); }
+    ssize_t read_available() { return PaUtil_GetRingBufferReadAvailable(&r); }
+    ssize_t write_available() { return PaUtil_GetRingBufferWriteAvailable(&r); }
     bool put(const T & t) { return PaUtil_WriteRingBuffer(&r, &t, 1); }
     bool get(T & t) { return PaUtil_ReadRingBuffer(&r, &t, 1); }
 };
@@ -148,12 +147,12 @@ class packetTransmitter {
     public:
         const int channels = 2;
         double Fs, Fc;
-        int upsample_factor;
+        size_t upsample_factor;
         double cutoff;
         IIRFilter<stereo> *hp;
         const WiFi80211 & wifi;
         vector<float> mask_noise;
-        packetTransmitter(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi);
+        packetTransmitter(double Fs, double Fc, size_t upsample_factor, const WiFi80211 & wifi);
         ~packetTransmitter();
         void encode(const frame & f, vector<stereo> & output);
 };
@@ -177,17 +176,17 @@ private:
     lockFreeRingBuffer<vector<stereo> *> input_audio, input_audio_ready;
 
     double Fs, Fc;
-    int upsample_factor;
-    const int framesPerBuffer = 512;
+    size_t upsample_factor;
+    const size_t framesPerBuffer = 512;
     const WiFi80211 & wifi;
     packetTransmitter transmitter = packetTransmitter(Fs, Fc, upsample_factor, wifi);
     thread nanny_thread, encoder_thread, decoder_thread;
-    int decoder_carrier_phase = 0, decoder_downsample_phase = 0;
+    size_t decoder_carrier_phase = 0, decoder_downsample_phase = 0;
     IIRFilter<fcomplex> *decoder_lowpass_filter;
 
-    circularBuffer<fcomplex> baseband_signal = circularBuffer<fcomplex>((int)(Fs * 10));
+    circularBuffer<fcomplex> baseband_signal = circularBuffer<fcomplex>((size_t)(Fs * 10));
 
-    const int trigger = 4096;
+    const size_t trigger = 4096;
 
     bool shutdown = false;
 
@@ -203,7 +202,7 @@ private:
     int callbacks = 0;
 
 public:
-    audioFIFO(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi);
+    audioFIFO(double Fs, double Fc, size_t upsample_factor, const WiFi80211 & wifi);
     void push_back(const frame & f);
     void pop_front(DecodeResult & f);
     ~audioFIFO();

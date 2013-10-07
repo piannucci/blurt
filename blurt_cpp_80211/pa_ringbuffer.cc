@@ -203,13 +203,13 @@ ring_buffer_size_t PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *d
     if( size2 > 0 )
     {
 
-        memcpy( data1, data, size1*rbuf->elementSizeBytes );
+        memcpy( data1, data, size_t(size1*rbuf->elementSizeBytes) );
         data = ((char *)data) + size1*rbuf->elementSizeBytes;
-        memcpy( data2, data, size2*rbuf->elementSizeBytes );
+        memcpy( data2, data, size_t(size2*rbuf->elementSizeBytes) );
     }
     else
     {
-        memcpy( data1, data, size1*rbuf->elementSizeBytes );
+        memcpy( data1, data, size_t(size1*rbuf->elementSizeBytes) );
     }
     PaUtil_AdvanceRingBufferWriteIndex( rbuf, numWritten );
     return numWritten;
@@ -224,13 +224,13 @@ ring_buffer_size_t PaUtil_ReadRingBuffer( PaUtilRingBuffer *rbuf, void *data, ri
     numRead = PaUtil_GetRingBufferReadRegions( rbuf, elementCount, &data1, &size1, &data2, &size2 );
     if( size2 > 0 )
     {
-        memcpy( data, data1, size1*rbuf->elementSizeBytes );
+        memcpy( data, data1, size_t(size1*rbuf->elementSizeBytes) );
         data = ((char *)data) + size1*rbuf->elementSizeBytes;
-        memcpy( data, data2, size2*rbuf->elementSizeBytes );
+        memcpy( data, data2, size_t(size2*rbuf->elementSizeBytes) );
     }
     else
     {
-        memcpy( data, data1, size1*rbuf->elementSizeBytes );
+        memcpy( data, data1, size_t(size1*rbuf->elementSizeBytes) );
     }
     PaUtil_AdvanceRingBufferReadIndex( rbuf, numRead );
     return numRead;
