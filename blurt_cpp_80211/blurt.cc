@@ -1,6 +1,9 @@
 #include <poll.h>
 #include <string>
 #include <cstdlib>
+#if __APPLE__
+#include <sys/select.h>
+#endif
 #include <ctime>
 
 #include "blurt.h"
@@ -15,13 +18,15 @@
 #include "crc.h"
 #include "iir.h"
 
-double Fs = 48000.;
-double Fc = 19000.;
-int upsample_factor = 16;
+const double Fs = 48000.;
+const double Fc = 18000.;
+const size_t upsample_factor = 8;
+const size_t rate = 0;
+const double gain = 15.;
 
 WiFi80211 wifi;
 
-void handle_packets_thread(audioFIFO * fifo, TapDevice * tap_device) {
+void handle_packets_thread(audioFIFO * fifo, TapDevice * tap_device) [[noreturn]] {
     // if we have string f = some frame, call tap_device.write(f);
     DecodeResult result;
     while ( 1 ) {
@@ -30,32 +35,46 @@ void handle_packets_thread(audioFIFO * fifo, TapDevice * tap_device) {
     }
 }
 
-int main(int argc, char **argp, char **envp) {
+int main(int, char **, char **) {
     try{
         audioFIFO fifo(Fs, Fc, upsample_factor, wifi);
         TapDevice tap_device("blurt");
 
         std::thread(handle_packets_thread, &fifo, &tap_device).detach();
 
+        int fd = tap_device.fd();
+#if defined(__linux__)
         // set up poll for tap devices
         struct pollfd pollfds[ 1 ];
-        pollfds[ 0 ].fd = tap_device.fd();
+        pollfds[ 0 ].fd = fd;
         pollfds[ 0 ].events = POLLIN;
+#endif
 
         // poll on the tap device
         while ( 1 ) {
-           // set poll wait time for each queue to time before head packet must be sent
+#if defined(__linux__)
             if( poll( pollfds, 1, -1 ) == -1 ) {
                 perror( "poll" );
                 return EXIT_FAILURE;
             }
-            tap_device.read();
-            // read from ingress which triggered POLLIN
-            if ( pollfds[ 0 ].revents & POLLIN )
-                fifo.push_back(frame{tap_device.read(), 0, 15.});
+            if (!( pollfds[ 0 ].revents & POLLIN ))
+                continue;
+#elif defined(__APPLE__)
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(fd, &fds);
+            int ret;
+            if ( (ret = select( fd+1, &fds, NULL, NULL, NULL )) < 0 ) {
+                perror( "select" );
+                return EXIT_FAILURE;
+            }
+            if (ret == 0 || !FD_ISSET(fd, &fds))
+                continue;
+#endif
+            fifo.push_back(frame{tap_device.read(), rate, gain});
         }
-        return 0;
     } catch (const char *e) {
-        std::cerr << e << std::endl;
+        std::cerr << "Exception: " << e << std::endl;
     }
+    return 0;
 }
