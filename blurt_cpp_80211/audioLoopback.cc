@@ -313,7 +313,7 @@ void audioFIFO::decoder_thread_func() {
             if (!input_audio.get(input))
                 continue;
 
-            const double s = -2 * M_PI * Fc / Fs;
+            const double s = -2 * M_PI * Fc_in / Fs;
             vector<fcomplex> baseband_input(input->size());
             for (int i=0; i<input->size(); i++)
                 baseband_input[i] = (float)(*input)[i] * expj(s * (i + decoder_carrier_phase));
@@ -345,8 +345,8 @@ void audioFIFO::decoder_thread_func() {
     lock_io(cerr) << "decoder finished" << endl;
 }
 
-audioFIFO::audioFIFO(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi)
-    : Fs(Fs), Fc(Fc), upsample_factor(upsample_factor), wifi(wifi) {
+audioFIFO::audioFIFO(double Fs, double Fc_out, double Fc_in, int upsample_factor, const WiFi80211 & wifi)
+    : Fs(Fs), Fc_out(Fc_out), Fc_in(Fc_in), upsample_factor(upsample_factor), wifi(wifi) {
     nanny_thread = thread(&audioFIFO::nanny_thread_func, this);
     encoder_thread = thread(&audioFIFO::encoder_thread_func, this);
     decoder_thread = thread(&audioFIFO::decoder_thread_func, this);

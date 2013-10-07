@@ -65,13 +65,13 @@ void WiFi80211::autocorrelate(const std::vector<complex> &input, std::vector<flo
     int Noutputs = (input.size() - Nperiod) / Nperiod;
     output.resize(Noutputs);
     int Nreps = ts_reps * (nfft + ncp) / Nperiod;
-    std::vector<float> corr_sum(Nreps-1 + Noutputs, 0);
+    std::vector<float> corr_sum(std::max(Nreps-1, 5) + Noutputs, 0);
     for (int i=0; i<Noutputs; i++) {
         int k = i * Nperiod;
         complex acc = 0;
         for (int j=0; j<Nperiod; j++)
             acc += input[k+j+Nperiod] * conj(input[k+j]);
-        corr_sum[Nreps-1+i] = corr_sum[Nreps-2+i] + abs(acc);
+        corr_sum[5+i] = corr_sum[4+i] + abs(acc);
     }
     for (int i=0; i<Noutputs; i++)
         output[i] = corr_sum[Nreps-1+i] - corr_sum[i];
@@ -121,7 +121,7 @@ void WiFi80211::wienerFilter(const std::vector<complex> &lts, std::vector<comple
             return;
         }
         // Wiener deconvolution
-        G[j] = S_Y[j] ? conj(Y[j])*ofdm.format.lts_freq[j] / S_Y[j] : 0.;
+        G[j] = conj(Y[j])*ofdm.format.lts_freq[j] / S_Y[j];
     }
     // noise estimation via residuals
     complex resid_sum = 0;

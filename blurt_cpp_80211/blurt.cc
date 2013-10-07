@@ -19,7 +19,8 @@
 #include "iir.h"
 
 const double Fs = 48000.;
-const double Fc = 18000.;
+const double Fc_out = 18000.;
+const double Fc_in = 10000.;
 const size_t upsample_factor = 8;
 const size_t rate = 0;
 const double gain = 15.;
@@ -37,7 +38,7 @@ void handle_packets_thread(audioFIFO * fifo, TapDevice * tap_device) [[noreturn]
 
 int main(int, char **, char **) {
     try{
-        audioFIFO fifo(Fs, Fc, upsample_factor, wifi);
+        audioFIFO fifo(Fs, Fc_out, Fc_in, upsample_factor, wifi);
         TapDevice tap_device("blurt");
 
         std::thread(handle_packets_thread, &fifo, &tap_device).detach();

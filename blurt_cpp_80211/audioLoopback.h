@@ -176,11 +176,11 @@ private:
     lockFreeRingBuffer<vector<stereo> *> output_audio, output_audio_finished;
     lockFreeRingBuffer<vector<stereo> *> input_audio, input_audio_ready;
 
-    double Fs, Fc;
+    double Fs, Fc_out, Fc_in;
     int upsample_factor;
     const int framesPerBuffer = 512;
     const WiFi80211 & wifi;
-    packetTransmitter transmitter = packetTransmitter(Fs, Fc, upsample_factor, wifi);
+    packetTransmitter transmitter = packetTransmitter(Fs, Fc_out, upsample_factor, wifi);
     thread nanny_thread, encoder_thread, decoder_thread;
     int decoder_carrier_phase = 0, decoder_downsample_phase = 0;
     IIRFilter<fcomplex> *decoder_lowpass_filter;
@@ -203,7 +203,7 @@ private:
     int callbacks = 0;
 
 public:
-    audioFIFO(double Fs, double Fc, int upsample_factor, const WiFi80211 & wifi);
+    audioFIFO(double Fs, double Fc_out, double Fc_in, int upsample_factor, const WiFi80211 & wifi);
     void push_back(const frame & f);
     void pop_front(DecodeResult & f);
     ~audioFIFO();
