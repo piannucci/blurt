@@ -6,7 +6,9 @@
 #include "fft.h"
 #include <limits>
 #include <cassert>
+#ifdef USE_VALGRIND
 #include <valgrind/memcheck.h>
+#endif
 
 void OFDMFrame::wienerFilter(const it & begin, const it & end, v &G, float &snr, float &lsnr_estimate) const {
     v lts_freq(begin, end), Y(ofdm.format.nfft, 0);
