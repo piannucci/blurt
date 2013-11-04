@@ -1,3 +1,4 @@
+#include "blurt.h"
 #include "mkfilter.h"
 #include <cstdlib>
 #include <cstring>
@@ -81,7 +82,7 @@ static void readcmdline(const char*[]);
 static unsigned int decodeoptions(const char*), optbit(const char);
 static double getfarg(const char*);
 static int getiarg(const char*);
-static void usage(), checkoptions(), setdefaults();
+static void usage NORETURN (), checkoptions(), setdefaults();
 static void compute_s(), choosepole(dcomplex), prewarp(), normalize(), compute_z_blt();
 static dcomplex blt(dcomplex);
 static void compute_z_mzt();
@@ -212,7 +213,7 @@ static unsigned int optbit(char c)
     }
 }
 
-static void usage() [[noreturn]] {
+static void usage() {
     throw "mkfilter: bad options; consult usage";
 }
 

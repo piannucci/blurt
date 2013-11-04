@@ -18,21 +18,11 @@
 #include "crc.h"
 #include "iir.h"
 
-double Fs = 48000.;
-double Fc = 19000.;
-size_t upsample_factor = 16;
+static double Fs = 48000.;
+static double Fc = 19000.;
+static size_t upsample_factor = 16;
 
-WiFi80211 wifi;
-
-#ifndef __has_attribute
-#define __has_attribute(x) 0
-#endif
-
-#if __has_attribute(noreturn)
-#define NORETURN [[noreturn]]
-#else
-#define NORETURN
-#endif
+static WiFi80211 wifi;
 
 void handle_packets_thread NORETURN (audioFIFO * fifo, TapDevice * tap_device) {
     // if we have string f = some frame, call tap_device.write(f);

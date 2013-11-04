@@ -1,13 +1,13 @@
 #include "puncture.h"
 
-bool matrix_1_2[] = {1,1};
-bool matrix_2_3[] = {1,1,1,0};
-bool matrix_3_4[] = {1,1,1,0,0,1};
-bool matrix_5_6[] = {1,1,1,0,0,1,1,0,0,1};
-bool matrix_7_8[] = {1,1,1,0,1,0,1,0,0,1,1,0,0,1};
-bool matrix_1_1[] = {0,1,1,0};
-bool matrix_3_2[] = {0,0,1,0,1,0};
-bool matrix_2_1[] = {0,0,0,1,0,0,1,0};
+static bool matrix_1_2[] = {1,1};
+static bool matrix_2_3[] = {1,1,1,0};
+static bool matrix_3_4[] = {1,1,1,0,0,1};
+static bool matrix_5_6[] = {1,1,1,0,0,1,1,0,0,1};
+static bool matrix_7_8[] = {1,1,1,0,1,0,1,0,0,1,1,0,0,1};
+static bool matrix_1_1[] = {0,1,1,0};
+static bool matrix_3_2[] = {0,0,1,0,1,0};
+static bool matrix_2_1[] = {0,0,0,1,0,0,1,0};
 
 #define ASSIGN_VECTOR(target, source) target.assign(source, source+sizeof(source)/sizeof(source[0]))
 
