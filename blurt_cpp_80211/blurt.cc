@@ -27,7 +27,17 @@ const double gain = 15.;
 
 WiFi80211 wifi;
 
-void handle_packets_thread(audioFIFO * fifo, TapDevice * tap_device) [[noreturn]] {
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+#if __has_attribute(noreturn)
+#define NORETURN [[noreturn]]
+#else
+#define NORETURN
+#endif
+
+void handle_packets_thread NORETURN (audioFIFO * fifo, TapDevice * tap_device) {
     // if we have string f = some frame, call tap_device.write(f);
     DecodeResult result;
     while ( 1 ) {

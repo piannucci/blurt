@@ -1,8 +1,8 @@
 # compile to native
-CC?=g++-4.7
 OPTFLAGS?=-O4 -ffast-math -funsafe-loop-optimizations -fipa-matrix-reorg -flto -fno-math-errno -funsafe-math-optimizations -fcx-fortran-rules -funroll-loops #-fprofile-use
-CXXFLAGS?=$(OPTFLAGS) -std=c++11 -MMD -ggdb -I/opt/local/include
+CXXFLAGS?=$(OPTFLAGS) -std=c++11 -MMD -ggdb
 LDFLAGS?=$(OPTFLAGS) -std=c++11 -ggdb -pthread
+LDLIBS?=-lportaudio -lm
 
 # compile to JavaScript
 EMCC=em++
@@ -21,11 +21,8 @@ OBJECTS=$(patsubst %.c,%.o,$(SOURCES:.cc=.o))
 
 all: blurt
 
-.cc.o:
-	$(CC) -c $(CXXFLAGS) $< -o $@
-
 blurt: $(OBJECTS)
-	$(CC) $(LDFLAGS) $^ -lportaudio -o $@
+	$(CXX) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 blurt.js: $(SOURCES)
 	PATH=$(EMSDK):$(PATH) $(EMCC) $(EMCFLAGS) $^ -o $@
