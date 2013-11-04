@@ -1,7 +1,6 @@
-CC = clang++
 CXX = clang++
 OPTFLAGS =
 PEDANTRY = -Weverything -pedantic-errors -Werror -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-padded -Wno-missing-prototypes -Wmissing-declarations
 PEDANTRY += -Wno-weak-vtables -Wno-global-constructors -Wno-exit-time-destructors -Wno-cast-align
-CXXFLAGS = $(OPTFLAGS) -ggdb -MMD -I/opt/local/include -std=c++11 -stdlib=libc++ $(PEDANTRY)
+CXXFLAGS = $(OPTFLAGS) -ggdb -MMD -I/opt/local/include -std=c++11 -stdlib=libc++ -I/opt/local/include $(PEDANTRY)
 LDFLAGS = -stdlib=libc++ -std=c++11 -ggdb
