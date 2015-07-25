@@ -73,7 +73,7 @@ def stitch(*x):
     output = np.zeros(sum(len(xx)-1 for xx in x)+1,np.complex)
     i = 0
     for xx in x:
-        yy = xx[:]
+        yy = xx.copy()
         yy[0] *= .5
         yy[-1] *= .5
         output[i:i+len(yy)] += yy

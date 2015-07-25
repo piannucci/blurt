@@ -5,11 +5,27 @@ import util, iir
 
 delay = .005
 
-def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise):
+waveform = None
+
+def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise, percentile=95):
     output = util.upsample(output, upsample_factor)
-    output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * loopback_Fc / loopback_Fs)).real
-    output *= 1.0 / np.percentile(np.abs(output), 95)
-    output = np.r_[output, np.zeros(int(.1*loopback_Fs))]
+
+    ramp_length = int(loopback_Fs*.01)
+    output[:ramp_length] *= np.clip(np.arange(ramp_length, dtype=float) / ramp_length, 0, 1)
+    output[-1:-ramp_length-1:-1] *= np.clip(np.arange(ramp_length, dtype=float) / ramp_length, 0, 1)
+
+    carrier = np.exp(1j * 2 * np.pi * np.arange(output.size) * loopback_Fc / loopback_Fs)
+    y1 = (output * carrier).real
+    for i in xrange(13):
+        y1 = np.diff(np.r_[0,y1])
+
+    peak = np.percentile(np.abs(y1), percentile)
+    gain = 16.0 / peak if peak else 0.
+    output = gain * y1
+    if 0:
+        limit = 800.
+        output = (2/np.pi*limit)*np.arctan((np.pi/2/limit)*output)
+    output = np.r_[output, np.zeros(int(.05*loopback_Fs))]
     if mask_noise is not None:
         if mask_noise.size > output.size:
             output = np.r_[output, np.zeros(mask_noise.size-output.size)]
@@ -20,6 +36,8 @@ def processOutput(output, loopback_Fs, loopback_Fc, upsample_factor, mask_noise)
     # nulls of our speaker array
     output = np.vstack((np.r_[np.zeros(delay_samples), output],
                         np.r_[output, np.zeros(delay_samples)])).T
+    global waveform
+    waveform = output
     return output
 
 def processInput(input, loopback_Fs, loopback_Fc, upsample_factor):

@@ -40,7 +40,7 @@ qam64 = qam_constellation(6)
 def encode(interleaved_bits, rate):
     return rate.constellation[util.shiftin(interleaved_bits, rate.Nbpsc)]
 
-def demapper(data, constellation, min_dist, dispersion, n):
+def demapper(data, constellation, dispersion, n):
     squared_distance = np.abs(constellation[np.newaxis,:] - data[:,np.newaxis])**2
     ll = -np.log(np.pi * dispersion) - squared_distance / dispersion
     ll -= np.logaddexp.reduce(ll, 1)[:,np.newaxis]

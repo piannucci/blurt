@@ -241,7 +241,6 @@ def demodulate(input, (G, uncertainty, var_n), drawingCalls=None):
                 return None, None, 0
             r_est = wifi_802_11_rates[rate_estimate]
             Nbpsc, constellation_estimate = r_est.Nbpsc, r_est.constellation
-            min_dist = np.diff(np.unique(sorted(constellation_estimate.real)))[0]
             Ncbps, Nbps = r_est.Ncbps, r_est.Nbps
             length_octets = (plcp_estimate >> 5) & 0xFFF
             length_bits = length_octets * 8
@@ -259,7 +258,7 @@ def demodulate(input, (G, uncertainty, var_n), drawingCalls=None):
                     drawingCalls.append(lambda: pl.ylim(-1.5,1.5))
                     initializedPlot = True
                 drawingCalls.append((lambda d: lambda: pl.scatter(d.real, d.imag, c=np.arange(data.size)))(data))
-            ll = qam.demapper(data, constellation_estimate, min_dist, dispersion, Nbpsc)
+            ll = qam.demapper(data, constellation_estimate, dispersion, Nbpsc)
             demapped_bits.append(ll)
         j += nfft+ncp
         i += 1

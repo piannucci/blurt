@@ -17,9 +17,9 @@ import traceback
 wifi = wifi80211
 
 fn = '35631__reinsamba__crystal-glass.wav'
-Fs = 48000.
-Fc = 19000. #Fs/4
-upsample_factor = 16
+Fs = 96000.
+Fc = 17000.
+upsample_factor = 32
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
 mask_noise[int(Fs*.5):] *= 1-np.arange(int(Fs*.5))/float(Fs*.5)
@@ -27,7 +27,7 @@ lsnr = None
 mask_noise = None
 
 rate = 0
-length = 16
+length = 32
 
 def test(visualize=False):
     input_octets = np.random.random_integers(0,255,length)
@@ -117,7 +117,7 @@ class ContinuousTransmitter(audio.stream.ThreadedStream):
         input_octets[:6] = map(ord, '%06d' % self.i)
         self.i += 1
         output = wifi.encode(input_octets, rate)
-        output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None)
+        output = audioLoopback.processOutput(output, Fs, Fc, upsample_factor, None, 100)
         if False:
             return output
         else:
@@ -225,7 +225,8 @@ if __name__ == '__main__':
         elif args[0] == '--tx':
             startTransmitting()
         elif args[0] == '--wav-in' and len(args) > 1:
-            input, Fs = util.readwave(args[1])
+            input, Fs_file = util.readwave(args[1])
+            input = util.upsample(input, Fs / float(Fs_file))
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
             for payload,_,_,lsnr_estimate in wifi.decode(input)[0]:
                 print(repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate))
