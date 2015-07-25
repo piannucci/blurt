@@ -33,7 +33,24 @@ void handle_packets_thread NORETURN (audioFIFO * fifo, TapDevice * tap_device) {
     }
 }
 
-int main(int, char **, char **) {
+int runDecodeTest() {
+    packetTransmitter transmitter{Fs, Fc, upsample_factor, wifi};
+
+    vector<stereo> output, outframe;
+    for (int i=0; i<10; i++) {
+        transmitter.encode(frame{"000001ABCDEFGHIJ", 0, 15.}, outframe);
+        outframe.resize(outframe.size() + size_t(Fs*.1));
+        output.insert(output.end(), outframe.begin(), outframe.end());
+    }
+
+    vector<fcomplex> input(output.begin(), output.end());
+    vector<DecodeResult> results;
+    wifi.decode(input, results);
+    std::cout << results.size() << std::endl;
+    return 0;
+}
+
+int runTapDevice() {
     try{
         audioFIFO fifo(Fs, Fc, upsample_factor, wifi);
         TapDevice tap_device("blurt");
@@ -75,4 +92,8 @@ int main(int, char **, char **) {
         std::cerr << "Exception: " << e << std::endl;
     }
     return 0;
+}
+
+int main(int, char **, char **) {
+    return runTapDevice();
 }

@@ -29,7 +29,7 @@ void Constellation::map(const bitvector &input, std::vector<complex> &output) co
     for (size_t i=0; i<output.size(); i++) {
         size_t data = 0;
         for (size_t k=0; k<Nbpsc; k++)
-            data |= (size_t)input[j++] << k;
+            data |= size_t(input[j++]) << k;
         output[i] = symbols[data];
     }
 }
@@ -37,7 +37,7 @@ void Constellation::map(const bitvector &input, std::vector<complex> &output) co
 void Constellation::demap(const std::vector<complex> &input, float dispersion, std::vector<int> &output) const {
     output.resize(input.size() * Nbpsc);
     std::vector<float> ll(1<<Nbpsc);
-    const float minus_log_pi_dispersion = -logf((float)M_PI * dispersion);
+    const float minus_log_pi_dispersion = -logf(float(M_PI) * dispersion);
     float neginf = -std::numeric_limits<float>::infinity();
     for (size_t k=0; k<input.size(); k++) {
         float ll_norm = neginf;
@@ -60,7 +60,7 @@ void Constellation::demap(const std::vector<complex> &input, float dispersion, s
             float x = 10.f * (ll1 - ll0);
             if (x > 1e4) x = 1e4;
             if (x < -1e4) x = -1e4;
-            output[k*Nbpsc+i] = (int)x;
+            output[k*Nbpsc+i] = int(x);
         }
     }
 }

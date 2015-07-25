@@ -13,7 +13,7 @@ static inline void shiftin(const bitvector &input, size_t noutput, std::vector<T
     for (size_t i=0; i<output.size(); i++) {
         T x = 0;
         for (size_t j=0; j<noutput; j++)
-            x += (T)input[i*noutput+j] << j;
+            x += T(input[i*noutput+j]) << j;
         output[i] = x;
     }
 }

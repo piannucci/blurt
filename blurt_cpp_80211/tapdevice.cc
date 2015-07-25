@@ -104,7 +104,7 @@ TapDevice::TapDevice( std::string name )
 	inet_aton(addr, &((struct sockaddr_in *)&addreq.ifra_addr)->sin_addr);
 
 	addreq.ifra_mask.sa_len = sizeof(addreq.ifra_mask);
-	inet_aton(mask, &((struct sockaddr_in *)&addreq.ifra_mask)->sin_addr);
+	inet_aton(mask, &(reinterpret_cast<struct sockaddr_in *>(&addreq.ifra_mask))->sin_addr);
     strncpy(addreq.ifra_name, name.c_str()+5, sizeof(addreq.ifra_name));
 
     if (ioctl(sockfd, SIOCAIFADDR, &addreq) < 0) {

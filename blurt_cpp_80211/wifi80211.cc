@@ -7,7 +7,7 @@
 #include <limits>
 #include "kalman.h"
 #include <cassert>
-#include <valgrind/memcheck.h>
+//#include <valgrind/memcheck.h>
 
 WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
 {
@@ -23,7 +23,7 @@ WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
 
 void WiFi80211::plcp_bits(const Rate &rate, size_t octets, bitvector &output) const {
     uint32_t plcp_rate = rev(rate.encoding, 4);
-    uint32_t plcp = plcp_rate | ((uint32_t)octets << 5);
+    uint32_t plcp = plcp_rate | (uint32_t(octets) << 5);
     uint32_t parity = (mul(plcp, 0x1FFFF) >> 16) & 1;
     plcp |= parity << 17;
     std::vector<uint32_t> input(1);
@@ -156,7 +156,7 @@ template <class T>
 static void check_vector(const std::vector<T> & input) {
     int wasbad = 0;
     for (size_t j=0; j<input.size(); j++) {
-        bool bad = VALGRIND_CHECK_VALUE_IS_DEFINED(input[j]);
+        bool bad = false; //VALGRIND_CHECK_VALUE_IS_DEFINED(input[j]);
         bad |= isnan(input[j].real());
         bad |= isnan(input[j].imag());
         bad |= input[j] == complex(0.,0.);
@@ -173,7 +173,7 @@ static void check_vector(const std::vector<T> & input) {
         std::cout << "input ends at " << input.size() << std::endl;
 }
 
-void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, float &uncertainty, float &var_ni, size_t &offset, float &lsnr_estimate) const {
+void WiFi80211::train(const std::vector<complex> &input, std::vector<complex> &G, float &angle_off_estimate, float &uncertainty, float &var_ni, size_t &offset, float &lsnr_estimate) const {
     const size_t nfft = ofdm.format.nfft;
     const size_t Nsc_used = ofdm.format.Nsc_used, Nsc = ofdm.format.Nsc;
     const size_t ts_reps = ofdm.format.ts_reps;
@@ -183,24 +183,24 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     const size_t N_sts_reps = (ts_reps * (nfft+ncp)) / N_sts_period;
     G.clear();
     lsnr_estimate = -std::numeric_limits<float>::infinity();
-    if (input.size() < N_sts_period*N_sts_reps)
+    if (input.size() < offset + N_sts_period*N_sts_reps)
         return;
-    std::vector<complex> sts(input.begin(), input.begin() + (ssize_t)(N_sts_period*N_sts_reps));
+    std::vector<complex> sts(input.begin() + ssize_t(offset), input.begin() + ssize_t(offset + N_sts_period*N_sts_reps));
     complex acc = 0;
     for (size_t i=0; i<N_sts_period*(N_sts_reps-1); i++)
         acc += sts[i] * conj(sts[N_sts_period+i]);
-    float angle_off_estimate = arg(acc)/N_sts_period;
-    for (size_t i=0; i<input.size(); i++)
-        input[i] = input[i] * expj(angle_off_estimate*i);
+    angle_off_estimate = arg(acc)/N_sts_period;
     // Next, obtain a fine frequency offset estimate from the long training sequences, and estimate
     // how uncertain this estimate is.
     const size_t N_lts_period = nfft;
     const size_t N_lts_reps = ts_reps;
     const size_t lts_cp = ncp * N_lts_reps;
-    offset = N_sts_reps*N_sts_period;
+    offset += N_sts_reps*N_sts_period;
     if (input.size() < offset + N_lts_period*N_lts_reps)
         return;
-    std::vector<complex> lts(input.begin() + (ssize_t)offset, input.begin() + (ssize_t)(offset + N_lts_period*N_lts_reps));
+    std::vector<complex> lts(N_lts_period*N_lts_reps);
+    for (size_t i=0; i<lts.size(); i++)
+        lts[i] = input[i+offset] * expj(angle_off_estimate*(i+offset));
     complex *p = &lts[0];
     for (size_t i=0; i<N_lts_reps; i++)
     {
@@ -230,9 +230,7 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
         for (size_t j=0; j<N_lts_period; j++)
             acc += lts[k+j]*conj(lts[k+N_lts_period+j]);
     }
-    float additional_freq_off_estimate = arg(acc)/N_lts_period;
-    for (size_t i=0; i<input.size(); i++)
-        input[i] = input[i] * expj(additional_freq_off_estimate*i);
+    angle_off_estimate += arg(acc)/N_lts_period;
     // if each subcarrier has SNR=snr, then var(input) = ((snr+1) num_used_sc + num_unused_sc) var(n_i)
     // var(n) = var(input) / (snr num_used_sc/num_sc + 1)
     // var(x_i) = (var(input) - var(n)) / num_used_sc
@@ -241,27 +239,28 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     std::vector<size_t> offsets;
     int offset_index = -1;
     for (size_t i=0; i<16; i++) {
-        int off = (int)(offset + lts_cp + i)-8;
-        if (off >= 0 && (size_t)off+N_lts_period*N_lts_reps < input.size()) {
-            offsets.push_back((size_t)off);
+        size_t off = offset + lts_cp + i - 8;
+        if (offset + lts_cp + i >= 8 && off+N_lts_period*N_lts_reps < input.size()) {
+            offsets.push_back(off);
             Gs.push_back(std::vector<complex>());
             snrs.push_back(0);
             lsnr_estimates.push_back(-std::numeric_limits<float>::infinity());
 
-            lts.assign(input.begin()+off, input.begin()+off+(ssize_t)(N_lts_period*N_lts_reps));
+            for (size_t j=0; j<lts.size(); j++)
+                lts[j] = input[j+off] * expj(angle_off_estimate*(j+off));
             wienerFilter(lts, Gs.back(), snrs.back(), lsnr_estimates.back());
             if (Gs.back().size() && lsnr_estimates.back() > lsnr_estimate) {
-                offset_index = (int)Gs.size()-1;
+                offset_index = int(Gs.size()) - 1;
                 lsnr_estimate = lsnr_estimates.back();
             }
         }
     }
     if (offset_index != -1) {
         // pick the offset that gives the highest SNR
-        float snr = snrs[(size_t)offset_index];
-        G = Gs[(size_t)offset_index];
-        offset = offsets[(size_t)offset_index];
-        float var_input = var(input);
+        float snr = snrs[size_t(offset_index)];
+        G = Gs[size_t(offset_index)];
+        offset = offsets[size_t(offset_index)];
+        float var_input = var(lts);
         float var_n = var_input / (float(snr * Nsc_used) / Nsc + 1);
         float var_x = var_input - var_n;
         float var_y = 2*var_n*var_x + var_n*var_n;
@@ -271,7 +270,8 @@ void WiFi80211::train(std::vector<complex> &input, std::vector<complex> &G, floa
     }
 }
 
-void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float uncertainty, float var_n,
+void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<complex> &G,
+                           float angle_off_estimate, float uncertainty, float var_n,
                            std::vector<int> &coded_bits, size_t &length_bits, size_t &offset) const {
     const size_t nfft = ofdm.format.nfft;
     const size_t ncp = ofdm.format.ncp;
@@ -283,8 +283,10 @@ void WiFi80211::demodulate(const std::vector<complex> &input, const std::vector<
     size_t length_symbols = 0, length_coded_bits = 0;
     float dispersion = 0.;
     const Rate *r_est = &rates[0];
+    std::vector<complex> sym(nfft);
     while (input.size() > nfft+offset && i <= length_symbols) {
-        std::vector<complex> sym(input.begin()+(ssize_t)offset, input.begin()+(ssize_t)(offset+nfft));
+        for (size_t j=0; j<nfft; j++)
+            sym[j] = input[offset+j] * expj((offset+j)*angle_off_estimate);
         fft(&sym[0], nfft);
         for (size_t j=0; j<nfft; j++)
             sym[j] *= G[j];
@@ -383,11 +385,9 @@ void WiFi80211::decodeFromLLR(const std::vector<int> &input, size_t length_bits,
 }
 
 void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResult> &output) const {
-    check_vector(input);
+    //check_vector(input);
     output.clear();
     size_t endIndex = 0;
-    std::vector<complex> working_buffer;
-    working_buffer.reserve(input.size());
     size_t minSize = ofdm.format.preambleLength + ofdm.format.ncp + ofdm.format.nfft;
     std::vector<size_t> startIndices;
     synchronize(input, startIndices);
@@ -397,19 +397,17 @@ void WiFi80211::decode(const std::vector<complex> &input, std::vector<DecodeResu
             break;
         if (startIndex < endIndex) // we already successfully decoded this packet
             continue;
-        working_buffer.assign(input.begin()+(ssize_t)startIndex, input.end());
-        working_buffer.shrink_to_fit();
-        if (working_buffer.size() <= minSize)
+        if (input.size() <= startIndex + minSize)
             continue;
         std::vector<complex> G;
-        float uncertainty, var_ni, lsnr;
-        size_t offset = 0;
-        train(working_buffer, G, uncertainty, var_ni, offset, lsnr);
+        float angle_off_estimate, uncertainty, var_ni, lsnr;
+        size_t offset = startIndex;
+        train(input, G, angle_off_estimate, uncertainty, var_ni, offset, lsnr);
         if (G.size() == 0)
             continue;
         std::vector<int> llr;
         size_t length_bits;
-        demodulate(working_buffer, G, uncertainty, var_ni, llr, length_bits, offset);
+        demodulate(input, G, angle_off_estimate, uncertainty, var_ni, llr, length_bits, offset);
         if (llr.size() == 0)
             continue;
         bitvector output_bits;

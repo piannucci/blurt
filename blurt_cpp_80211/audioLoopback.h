@@ -98,9 +98,9 @@ struct circularBuffer {
         if (N) {
             size_t M = min(N, maximum - write_idx);
             if (M)
-                copy(input.begin(), input.begin() + (ssize_t)M, buffer.begin() + (ssize_t)write_idx);
+                copy(input.begin(), input.begin() + ssize_t(M), buffer.begin() + ssize_t(write_idx));
             if (N-M)
-                copy(input.begin() + (ssize_t)M, input.begin() + (ssize_t)N, buffer.begin());
+                copy(input.begin() + ssize_t(M), input.begin() + ssize_t(N), buffer.begin());
             write_idx = (write_idx + N) % maximum;
             length += N;
         }
@@ -112,9 +112,9 @@ struct circularBuffer {
         if (N) {
             size_t M = min(N, maximum - read_idx);
             if (M)
-                copy(buffer.begin() + (ssize_t)read_idx, buffer.begin() + (ssize_t)(read_idx + M), output.begin());
+                copy(buffer.begin() + ssize_t(read_idx), buffer.begin() + ssize_t(read_idx + M), output.begin());
             if (N-M)
-                copy(buffer.begin(), buffer.begin() + (ssize_t)(N - M), output.begin() + (ssize_t)M);
+                copy(buffer.begin(), buffer.begin() + ssize_t(N - M), output.begin() + ssize_t(M));
         }
     }
 
@@ -179,12 +179,12 @@ private:
     size_t upsample_factor;
     const size_t framesPerBuffer = 512;
     const WiFi80211 & wifi;
-    packetTransmitter transmitter = packetTransmitter(Fs, Fc, upsample_factor, wifi);
+    packetTransmitter transmitter{Fs, Fc, upsample_factor, wifi};
     thread nanny_thread, encoder_thread, decoder_thread;
     size_t decoder_carrier_phase = 0, decoder_downsample_phase = 0;
     IIRFilter<fcomplex> *decoder_lowpass_filter;
 
-    circularBuffer<fcomplex> baseband_signal = circularBuffer<fcomplex>((size_t)(Fs * 10));
+    circularBuffer<fcomplex> baseband_signal = circularBuffer<fcomplex>(size_t(Fs * 10));
 
     const size_t trigger = 4096;
 

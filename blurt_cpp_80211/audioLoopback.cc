@@ -54,7 +54,7 @@ void processOutput(const vector<fcomplex> &input,
         amplitude[i] = fabsf(modulated_output[i]);
 
     size_t idx = size_t(amplitude.size() * .95f);
-    nth_element(amplitude.begin(), amplitude.begin() + (ssize_t)idx, amplitude.end());
+    nth_element(amplitude.begin(), amplitude.begin() + ssize_t(idx), amplitude.end());
     float percentile_95_amplitude = amplitude[idx];
 
     vector<float> scaled_output(modulated_output.size());
@@ -96,7 +96,7 @@ void processInput(const vector<stereo> &input,
     IIRFilter<fcomplex> lp(args);
     vector<fcomplex> filtered_signal;
     lp.apply(baseband_signal, filtered_signal);
-    output.resize(size_t(filtered_signal.size()/(float)upsample_factor));
+    output.resize(size_t(filtered_signal.size()/float(upsample_factor)));
     for (size_t i=0; i<output.size(); i++)
         output[i] = filtered_signal[i*upsample_factor];
 }
@@ -160,7 +160,7 @@ static void initPortAudio() { Pa_Initialize(); atexit(cleanupPortAudio); }
 int audioFIFO::myCallback( const void *inputBuffer, void *outputBuffer, size_t
     framesPerBuffer, const PaStreamCallbackTimeInfo* timeInfo,
     PaStreamCallbackFlags statusFlags, void *userData ) {
-    audioFIFO *af = (audioFIFO *)userData;
+    audioFIFO *af = reinterpret_cast<audioFIFO *>(userData);
     return af->callback(inputBuffer, outputBuffer, framesPerBuffer, timeInfo, statusFlags);
 }
 
@@ -169,8 +169,8 @@ int audioFIFO::callback(const void *inputBuffer, void *outputBuffer, size_t
     PaStreamCallbackFlags) {
 
     callbacks++;
-    const stereo *in  = (const stereo *)inputBuffer;
-    stereo *out = (stereo *)outputBuffer;    
+    const stereo *in  = reinterpret_cast<const stereo *>(inputBuffer);
+    stereo *out = reinterpret_cast<stereo *>(outputBuffer);
 
     size_t outputFrames = framesPerBuffer_;
     while (outputFrames) {
@@ -315,7 +315,7 @@ void audioFIFO::decoder_thread_func() {
             const double s = -2 * M_PI * Fc / Fs;
             vector<fcomplex> baseband_input(input->size());
             for (size_t i=0; i<input->size(); i++)
-                baseband_input[i] = (float)(*input)[i] * expj(float(s * (i + decoder_carrier_phase)));
+                baseband_input[i] = float((*input)[i]) * expj(float(s * (i + decoder_carrier_phase)));
             decoder_carrier_phase += input->size();
 
             // filter

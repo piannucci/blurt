@@ -22,8 +22,8 @@ private:
     void autocorrelate(const std::vector<complex> &input, std::vector<float> &output) const;
     void synchronize(const std::vector<complex> &input, std::vector<size_t> &startIndices) const;
     void wienerFilter(const std::vector<complex> &lts, std::vector<complex> &G, float &snr, float &lsnr_estimate) const;
-    void train(std::vector<complex> &input, std::vector<complex> &G, float &uncertainty, float &var_ni, size_t &offset, float &lsnr_estimate) const;
-    void demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float uncertainty, float var_n,
+    void train(const std::vector<complex> &input, std::vector<complex> &G, float &angle_off_estimate, float &uncertainty, float &var_ni, size_t &offset, float &lsnr_estimate) const;
+    void demodulate(const std::vector<complex> &input, const std::vector<complex> &G, float angle_off_estimate, float uncertainty, float var_n,
             std::vector<int> &coded_bits, size_t &length_bits, size_t &offset) const;
     void decodeFromLLR(const std::vector<int> &input, size_t length_bits, bitvector &output) const;
 public:

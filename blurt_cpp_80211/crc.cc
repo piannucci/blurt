@@ -10,7 +10,7 @@ void CRC::remainder_slow(const bitvector &a, bitvector &output) {
         if (c[i])
             for (size_t j=0; j<B; j++)
                 c[i+j] = c[i+j] ^ b[j];
-    output.assign(c.rbegin(), c.rbegin()+(ssize_t)(B-1));
+    output.assign(c.rbegin(), c.rbegin()+ssize_t(B-1));
 }
 
 uint32_t CRC::remainder_fast(const bitvector &a, bitvector &output) const {
@@ -20,7 +20,7 @@ uint32_t CRC::remainder_fast(const bitvector &a, bitvector &output) const {
         uint32_t x = 0;
         size_t k = N-1-i*L;
         for (size_t j=0; j<L && j <= k; j++)
-            x += (uint32_t)a[k-j] << j;
+            x += uint32_t(a[k-j]) << j;
         a_words[A-1-i] = x;
     }
     uint32_t r = 0;
@@ -41,7 +41,7 @@ void CRC::lut_bootstrap(const bitvector &new_b, size_t new_L) {
         std::vector<uint32_t> results;
         for (size_t i=0; i<1<<new_L; i++) {
             std::vector<uint32_t> num(1);
-            num[0] = (uint32_t)i;
+            num[0] = uint32_t(i);
             bitvector a;
             shiftout(num, new_L, a);
             std::reverse(a.begin(), a.end());
@@ -55,7 +55,7 @@ void CRC::lut_bootstrap(const bitvector &new_b, size_t new_L) {
         bitvector bits;
         for (size_t i=0; i<1<<new_L; i++) {
             std::vector<uint32_t> num(1);
-            num[0] = (uint32_t)i;
+            num[0] = uint32_t(i);
             bitvector a;
             shiftout(num, new_L, a);
             std::reverse(a.begin(), a.end());
@@ -67,7 +67,7 @@ void CRC::lut_bootstrap(const bitvector &new_b, size_t new_L) {
     M = new_M;
     L = new_L;
     s = M-L;
-    m = (uint32_t)((1ull<<M)-1);
+    m = uint32_t((1ull<<M)-1);
 }
 
 void CRC::FCS(const bitvector &calculationFields, bitvector &output) const {

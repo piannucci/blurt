@@ -19,7 +19,7 @@ void Scrambler::scramble(const bitvector &input, size_t multipleOf, bitvector &o
     output.assign(input.begin(), input.end());
     output.resize(input.size() + pad_bits);
     for (size_t i=0; i<output.size(); i++)
-        output[i] = (uint8_t)(output[i] ^ sc.next());
+        output[i] = uint8_t(output[i] ^ sc.next());
     for (size_t i=input.size(); i<input.size()+6; i++)
         output[i] = 0;
 }

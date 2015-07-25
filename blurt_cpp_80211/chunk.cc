@@ -2,21 +2,21 @@
 #include <fstream>
 
 Chunk::Chunk(std::ifstream &file) :
-    offset(file.is_open() ? (uint32_t)file.tellg() : 0), counter(0), parent(0), ifile(&file), ofile(0)
+    offset(file.is_open() ? uint32_t(file.tellg()) : 0), counter(0), parent(0), ifile(&file), ofile(0)
 {
     id.resize(4);
     this->ifile->read(&id[0], 4);
-    this->ifile->read((char *)&size, 4);
+    this->ifile->read(reinterpret_cast<char *>(&size), 4);
 }
 
 void Chunk::writeHeader() {
     this->ofile->seekp(offset);
     this->ofile->write(&id[0], 4);
-    this->ofile->write((char *)&size, 4);
+    this->ofile->write(reinterpret_cast<char *>(&size), 4);
 }
 
 Chunk::Chunk(std::ofstream &file, std::string id_, Chunk *parent_) :
-    offset((uint32_t)file.tellp()), counter(0), parent(parent_), id(id_), size(0), ifile(0), ofile(&file)
+    offset(uint32_t(file.tellp())), counter(0), parent(parent_), id(id_), size(0), ifile(0), ofile(&file)
 {
     if (parent)
         parent->allocate(8);
@@ -24,7 +24,7 @@ Chunk::Chunk(std::ofstream &file, std::string id_, Chunk *parent_) :
 }
 
 Chunk::Chunk(std::ofstream &file, std::string id_) :
-    offset((uint32_t)file.tellp()), counter(0), parent(0), id(id_), size(0), ifile(0), ofile(&file)
+    offset(uint32_t(file.tellp())), counter(0), parent(0), id(id_), size(0), ifile(0), ofile(&file)
 {
     writeHeader();
 }
@@ -32,21 +32,21 @@ Chunk::Chunk(std::ofstream &file, std::string id_) :
 void Chunk::parseSubchunks() {
     while (counter < size) {
         ifile->seekg(offset+8+counter);
-        subchunks.push_back(Chunk(*ifile));
+        subchunks.emplace_back(*ifile);
         counter += 8+subchunks.back().size;
     }
 }
 
 void Chunk::read(void *output, size_t count) {
     ifile->seekg(offset+8+counter);
-    ifile->read((char *)output, (std::streamsize)count);
+    ifile->read(reinterpret_cast<char *>(output), std::streamsize(count));
     counter += count;
 }
 
 void Chunk::write(void *input, size_t count) {
     ofile->seekp(offset+8+counter);
     allocate(count);
-    ofile->write((char *)input, (std::streamsize)count);
+    ofile->write(reinterpret_cast<char *>(input), std::streamsize(count));
 }
 
 void Chunk::allocate(size_t count) {

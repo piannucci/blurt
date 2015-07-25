@@ -10,8 +10,8 @@ static void trainingSequenceFromFreq(const std::vector<complex> &ts_freq, size_t
     size_t start = (-(ncp*reps) % nfft + nfft) % nfft; // mod with round towards negative infinity
     ts.reserve(nfft*tilesNeeded); // make sure no reallocations while tiling
     for (size_t i=1; i<tilesNeeded; i++)
-        ts.insert(ts.end(), ts.begin(), ts.begin() + (ssize_t)nfft); // tile out training sequence
-    ts_time.assign(ts.begin() + (ssize_t)start, ts.end()-ssize_t(nfft-1));
+        ts.insert(ts.end(), ts.begin(), ts.begin() + ssize_t(nfft)); // tile out training sequence
+    ts_time.assign(ts.begin() + ssize_t(start), ts.end()-ssize_t(nfft-1));
 }
 
 OFDMFormat audioLTFormat() {
@@ -24,7 +24,7 @@ OFDMFormat audioLTFormat() {
     int sts_nonzero_idx[] = {4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4};
     complex sts_nonzero_phase[] = {-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1};
     for (size_t i=0; i<sizeof(sts_nonzero_idx)/sizeof(int); i++)
-        f.sts_freq[size_t(sts_nonzero_idx[i]+(int)f.nfft)%f.nfft] = sts_unit * sts_nonzero_phase[i];
+        f.sts_freq[size_t(sts_nonzero_idx[i]+int(f.nfft))%f.nfft] = sts_unit * sts_nonzero_phase[i];
     trainingSequenceFromFreq(f.sts_freq, f.ts_reps, f.ncp, f.sts_time);
     complex lts_freq_vals[] = {
         0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
@@ -94,8 +94,8 @@ void OFDM::encode(const std::vector<complex> &input, std::vector<complex> &outpu
         ifft(&symbol[0], format.nfft);
         symbol.reserve(format.nfft*tilesNeeded);
         for (size_t k=1; k<tilesNeeded; k++)
-            symbol.insert(symbol.end(), symbol.begin(), symbol.begin() + (ssize_t)format.nfft);
-        output_chunks.push_back(std::vector<complex>(symbol.begin()+(ssize_t)start, symbol.end()-(ssize_t)(format.nfft-1)));
+            symbol.insert(symbol.end(), symbol.begin(), symbol.begin() + ssize_t(format.nfft));
+        output_chunks.push_back(std::vector<complex>(symbol.begin()+ssize_t(start), symbol.end()-ssize_t(format.nfft-1)));
     }
     stitch(output_chunks, output);
 }

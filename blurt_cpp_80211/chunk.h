@@ -7,6 +7,7 @@ private:
     uint32_t offset, counter;
     Chunk *parent;
     Chunk(std::ofstream &file, std::string id, Chunk *parent);
+    Chunk(const Chunk &) = delete;
     void writeHeader();
     void allocate(size_t count);
 public:

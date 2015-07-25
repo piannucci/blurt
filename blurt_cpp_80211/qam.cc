@@ -14,9 +14,9 @@ uint32_t grayRevToBinary(uint32_t x, uint32_t n) {
     return y;
 }
 
-QAM::QAM(size_t Nbpsc) : Constellation(Nbpsc) {
+QAM::QAM(uint32_t Nbpsc) : Constellation(Nbpsc) {
     float scale = 1.f;
-    size_t n = 1;
+    uint32_t n = 1;
     if (Nbpsc != 1) {
         // want variance = .5 per channel
         // in fact, var{ 2 range(2^{Nbpsc/2}) - const } = (2^Nbpsc - 1) / 3
@@ -24,8 +24,8 @@ QAM::QAM(size_t Nbpsc) : Constellation(Nbpsc) {
         n = Nbpsc >> 1;
     }
     std::vector<float> syms(1<<n);
-    for (size_t i=0; i<1<<n; i++)
-        syms[i] = (2*(int)grayRevToBinary((uint32_t)i, (uint32_t)n) + 1 - (1<<n)) * scale;
+    for (uint32_t i=0; i<1<<n; i++)
+        syms[i] = (2*int(grayRevToBinary(i, n)) + 1 - (1<<n)) * scale;
     if (Nbpsc != 1) {
         size_t k=0;
         for (size_t i=0; i<1<<n; i++)

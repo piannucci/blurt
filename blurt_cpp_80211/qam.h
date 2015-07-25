@@ -4,6 +4,6 @@
 
 class QAM : public Constellation {
 public:
-    QAM(size_t Nbpsc);
+    QAM(uint32_t Nbpsc);
 };
 #endif
