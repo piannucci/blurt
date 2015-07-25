@@ -92,7 +92,7 @@ class AudioBuffer(audio.stream.ThreadedStream):
             input = self.inputProcessor.process(input)
         N = min(input.size, self.maximum - self.length)
         if N < input.size:
-            print 'AudioBuffer overrun'
+            print('AudioBuffer overrun')
         if N:
             M = min(N, self.maximum - self.write_idx)
             if M:

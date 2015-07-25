@@ -20,7 +20,7 @@ if os.path.exists(sockfile):
 
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(sockfile)
-os.chmod(sockfile, 0775)
+os.chmod(sockfile, 0o775)
 server.listen(5)
 
 cmap = {
@@ -59,8 +59,8 @@ try:
                 pl.xlim(0,bins.max())
                 pl.ylim(freqs[0], freqs[-1])
                 pl.draw()
-                import StringIO, base64
-                s = StringIO.StringIO()
+                import StringIO as io, base64
+                s = io.StringIO()
                 pl.savefig(s, format='png', dpi=64, transparent=True)
                 img = 'data:image/png;base64,' + base64.b64encode(s.getvalue())
                 s.close()
@@ -74,10 +74,10 @@ try:
                 conn.send('%08d%s' % (len(response), response))
                 #conn.send(output)
             except Exception, e:
-                print repr(e)
+                print(repr(e))
                 conn.send('Decoder error')
         conn.close()
-        print data
+        print(data)
 except KeyboardInterrupt:
     pass
 

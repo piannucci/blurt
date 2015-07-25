@@ -24,9 +24,9 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
         try:
             results, _ = wifi.decode(input, False, False)
             for payload, startIndex, endIndex, lsnr_estimate in results:
-                print repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate)
+                print(repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate))
         except Exception, e:
-            print repr(e)
+            print(repr(e))
         if endIndex:
             return endIndex
         else:
@@ -60,12 +60,12 @@ if __name__ == '__main__':
         parser.error('Center frequency plus half of bandwidth cannot exceed half of sampling frequency (Nyquist criterion)')
 
     if args.rx:
-        print 'Listening for transmissions with a center frequency of %.0f Hz and a bandwidth of %.0f Hz (sample rate %.0f)' % \
-            (args.Fc, args.Fs / args.upsample_factor, args.Fs)
+        print('Listening for transmissions with a center frequency of %.0f Hz and a bandwidth of %.0f Hz (sample rate %.0f)' % \
+            (args.Fc, args.Fs / args.upsample_factor, args.Fs))
         audio.record(ContinuousReceiver(Fs=args.Fs, Fc=args.Fc, upsample_factor=args.upsample_factor), args.Fs)
     else:
-        print 'Transmitting %r with a center frequency of %.0f Hz and a bandwidth of %.0f Hz (sample rate %.0f)' % \
-            (args.message, args.Fc, args.Fs / args.upsample_factor, args.Fs)
+        print('Transmitting %r with a center frequency of %.0f Hz and a bandwidth of %.0f Hz (sample rate %.0f)' % \
+            (args.message, args.Fc, args.Fs / args.upsample_factor, args.Fs))
         input_octets = np.array(map(ord, args.message), dtype=np.uint8)
         output = wifi.encode(input_octets, args.rate)
         audioLoopback.audioOut(output, args.Fs, args.Fc, args.upsample_factor, None)

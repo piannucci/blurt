@@ -82,7 +82,8 @@ def processWave(fn):
         lp = lambda x:iir.lowpass(.005)(np.r_[np.zeros(6), x])[6:]
         pl.plot(lp(np.abs(signal))*.5)
         pl.plot(np.arange(envelope.size) * ratio - 77840, envelope)
-        map(lambda x:pl.gca().axvline(x, color='k'), peaks)
+        for x in peaks:
+            pl.gca().axvline(x, color='k')
         noise_interval = np.zeros(signal.size, bool)
         for start, end in intervals[0]:
             noise_interval[start:end] = True
@@ -109,8 +110,8 @@ H_mag_all = np.empty((5,6,bins), float)
 S_N_all = np.empty((5,6,bins), float)
 capacity_all = np.empty((5,6,bins), float)
 
-for x in xrange(1,7):
-    for y in xrange(1,6):
+for x in range(1,7):
+    for y in range(1,6):
         fn = fn_template % (y, x)
         df, H_mag, S_N, capacity, peaks = processWave(fn)
         H_mag_all[y-1,x-1] = H_mag

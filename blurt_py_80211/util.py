@@ -13,7 +13,7 @@ def upsample(x, n):
 def rev(x,n):
     """Reverse the bits in the n-bit number x."""
     y = 0
-    for i in xrange(n):
+    for i in range(n):
         y <<= 1
         y |= 1 * np.array(x&1, bool)
         x >>= 1
@@ -41,7 +41,7 @@ def shiftout(input, ninput):
 def truncate(x, i):
     while i>0:
         i -= 1
-        yield x.next()
+        yield next(x)
 
 def papr(x):
     m = np.abs(x)**2

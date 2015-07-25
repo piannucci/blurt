@@ -12,8 +12,9 @@ import audioLoopback, channelModel, maskNoise, wifi80211
 import audio, util
 import pylab as pl
 import iir
+import traceback
 
-wifi = wifi80211.WiFi_802_11()
+wifi = wifi80211
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 48000.
@@ -41,7 +42,7 @@ def test(visualize=False):
         results, _ = wifi.decode(input, visualize)
         return len(results), bitrate
     except Exception, e:
-        print e
+        traceback.print_exc()
         return False, bitrate
 
 def transmit(message):
@@ -57,7 +58,7 @@ def presentResults(results, drawFunc):
         if len(_results):
             for result in _results:
                 payload, _, _, lsnr_estimate = result
-                print repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate)
+                print(repr(''.join(map(chr, payload))) + (' @ %.3f dB' % lsnr_estimate))
                 if typeModHex:
                     import keypress
                     mod = "cbdefghijklnrtuv"
@@ -98,7 +99,7 @@ class ContinuousReceiver(audioLoopback.AudioBuffer):
         except Exception, e:
             badPacketWaveforms.append(input)
             del badPacketWaveforms[:-10]
-            print repr(e)
+            traceback.print_exc()
         if endIndex:
             return endIndex
         else:
@@ -109,7 +110,7 @@ class ContinuousTransmitter(audio.stream.ThreadedStream):
         self.channels = 2
         self.i = 0
         cutoff = Fc - Fs/upsample_factor
-        self.hp = [iir.highpass(cutoff/Fs, continuous=True, dtype=np.float64) for i in xrange(2)]
+        self.hp = [iir.highpass(cutoff/Fs, continuous=True, dtype=np.float64) for i in range(2)]
         super(ContinuousTransmitter, self).init()
     def thread_produce(self):
         input_octets = ord('A') + np.random.random_integers(0,25,length)
@@ -150,6 +151,53 @@ def decoderDiagnostics(waveform=None):
 visualize = False
 typeModHex = False
 
+import intelpowergadget
+#def rdpmc(counter):
+#    import scipy.weave
+#    code = """
+#    unsigned a, d;
+#    asm volatile("movl $4, %%ecx\\n\\trdpmc" : "=a" (a), "=d" (d) : "c" (counter) );
+#    return_val = Py_BuildValue("K", (((unsigned long long) a) | (((unsigned long long) d) << 32)));
+#    """
+#    return scipy.weave.inline(code, ['counter'])
+
+def cpuTrial():
+    mark1 = intelpowergadget.mark()
+    packets = 100
+    outputChunks = []
+    for i in xrange(packets):
+        input_octets = ord('A') + np.random.random_integers(0,25,length)
+        input_octets[:6] = map(ord, '%06d' % i)
+        output = audioLoopback.processOutput(wifi.encode(input_octets, rate), Fs, Fc, upsample_factor, mask_noise)
+        output *= 1 / np.abs(output).max()
+        outputChunks.append(output)
+        outputChunks.append(np.zeros((Fs/10, outputChunks[0].shape[1])))
+    outputChunks.append(np.zeros((Fs/2, outputChunks[0].shape[1])))
+    output = np.vstack(outputChunks)
+    mark2 = intelpowergadget.mark()
+
+    cycles_elapsed = intelpowergadget.count(mark1, mark2)
+    samples_produced = output.shape[0]
+    encoder_min_cpu_freq = cycles_elapsed * Fs / float(samples_produced)
+
+    mark1 = intelpowergadget.mark()
+    input = audioLoopback.processInput(output.mean(1), Fs, Fc, upsample_factor)
+    count = len(wifi.decode(input)[0])
+    mark2 = intelpowergadget.mark()
+
+    print count
+    cycles_elapsed = intelpowergadget.count(mark1, mark2)
+    decoder_min_cpu_freq = cycles_elapsed * Fs / float(samples_produced)
+
+    return encoder_min_cpu_freq, decoder_min_cpu_freq
+
+def cpuTrials():
+    import itertools
+    results = np.array([cpuTrial() for i in xrange(10)])
+    means = ['%.1f' % r for r in results.mean(0)/1e6]
+    devs = ['%.1f' % r for r in results.std(0)/1e6]
+    return '%s +/- %s MHz encode, %s +/- %s MHz decode' % tuple(itertools.chain(*zip(means, devs)))
+
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         args = sys.argv[1:]
@@ -180,7 +228,7 @@ if __name__ == '__main__':
             input, Fs = util.readwave(args[1])
             input = audioLoopback.processInput(input, Fs, Fc, upsample_factor)
             for payload,_,_,lsnr_estimate in wifi.decode(input)[0]:
-                print repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate)
+                print(repr(''.join(map(chr, payload))) + (' @ %.1f dB' % lsnr_estimate))
         elif args[0] == '--wav-out' and len(args) > 1:
             fn = args[1]
             args = args[2:]

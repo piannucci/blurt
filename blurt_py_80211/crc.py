@@ -3,6 +3,7 @@ import numpy as np
 import util
 from scipy import weave
 from scipy.weave import converters
+import cPickle as pickle
 
 def remainder1(a, b):
     # clobbers input!
@@ -74,16 +75,14 @@ def lut_bootstrap(b, new_L):
     m = (1<<M)-1
 
 def lut_dump(fn):
-    import cPickle
     with open(fn, 'wb') as f:
-        cPickle.dump((_lut,M,L,s,M_L,m), f)
+        pickle.dump((_lut,M,L,s,M_L,m), f)
 
 def lut_load(fn):
-    import cPickle
     global _lut, M, L, s, M_L, m
     try:
         with open(fn, 'rb') as f:
-            _lut, M, L, s, M_L, m = cPickle.load(f)
+            _lut, M, L, s, M_L, m = pickle.load(f)
         return True
     except:
         return False

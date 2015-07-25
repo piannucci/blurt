@@ -7,8 +7,8 @@ def _iir_cpp_impl(order, alpha, beta, gamma, float=False):
     impl = "for (int i=0; i<%d && i<N; i++)\n" % order
     impl += "\ty(i) = x(i)*%.10e;\n" % (1./gamma)
     impl += "for (int i=%d; i<N; i++)\n" % order
-    impl += "\ty(i) = " + " + ".join("%.10e%s*x(i%s)" % (alpha[i], 'f' if float else '', str(i-order) if i!=order else "") for i in xrange(order+1))
-    impl += " + " + " + ".join("%.10e%s*y(i%s)" % (beta[i], 'f' if float else '', str(i-order)) for i in xrange(order))
+    impl += "\ty(i) = " + " + ".join("%.10e%s*x(i%s)" % (alpha[i], 'f' if float else '', str(i-order) if i!=order else "") for i in range(order+1))
+    impl += " + " + " + ".join("%.10e%s*y(i%s)" % (beta[i], 'f' if float else '', str(i-order)) for i in range(order))
     impl += ";\nfor (int i=0; i<N; i++)\n\ty(i) *= %.10e;" % gamma
     return impl
 
@@ -19,8 +19,8 @@ def _iir_cpp_impl_continuous(order, alpha, beta, gamma, float=False):
     impl += "\ty(i) = y_hist(i);\n"
     impl += "}\n"
     impl += "for (int i=%d; i<N+%d; i++)\n" % (order, order)
-    impl += "\ty(i) = " + " + ".join("%.10e%s*x(i%s)" % (alpha[i], 'f' if float else '', str(i-order) if i!=order else "") for i in xrange(order+1))
-    impl += " + " + " + ".join("%.10e%s*y(i%s)" % (beta[i], 'f' if float else '', str(i-order)) for i in xrange(order))
+    impl += "\ty(i) = " + " + ".join("%.10e%s*x(i%s)" % (alpha[i], 'f' if float else '', str(i-order) if i!=order else "") for i in range(order+1))
+    impl += " + " + " + ".join("%.10e%s*y(i%s)" % (beta[i], 'f' if float else '', str(i-order)) for i in range(order))
     impl += ";\n"
     impl += "for (int i=0; i<%d; i++)\n" % order
     impl += "{\n"

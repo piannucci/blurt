@@ -7,7 +7,7 @@ import util
 # This file implements the 802.11 convolutional code.  The convolutional encoder
 # and Viterbi decoder are optimized in terms of look-up tables and in-line C++.
 
-standard_cc = (7,0133,0171)
+standard_cc = (7,0o133,0o171)
 
 # Puncturing schedules
 matrix_1_2 = np.array([1,1])
@@ -20,7 +20,16 @@ matrix_3_2 = np.array([0,0,1,0,1,0])
 matrix_2_1 = np.array([0,0,0,1,0,0,1,0])
 matrices = [matrix_1_2, matrix_2_3, matrix_3_4, matrix_5_6, matrix_7_8, matrix_1_1, matrix_3_2, matrix_2_1]
 rates = [(1,2), (2,3), (3,4), (5,6), (7,8), (1,1), (3,2), (2,1)]
-puncturingSchedule = dict(zip(rates, zip(rates, matrices)))
+
+class PuncturingSchedule:
+    def __init__(self, rate, matrix):
+        self.rate = rate
+        self.matrix = matrix
+
+_puncturingSchedule = {r:PuncturingSchedule(r, m) for r,m in zip(rates, matrices)}
+
+def puncturingSchedule(numerator, denominator):
+    return _puncturingSchedule[(numerator, denominator)]
 
 class ConvolutionalCode:
     def __init__(self, code=standard_cc):

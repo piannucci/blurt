@@ -3,7 +3,7 @@ import numpy as np
 
 scrambler_y = np.zeros((127,128), np.uint8)
 s = np.arange(128, dtype=np.uint8)
-for i in xrange(127):
+for i in range(127):
     s = np.uint16((s << 1) ^ (1 & ((s >> 3) ^ (s >> 6))))
     scrambler_y[i] = s&1
 

@@ -4,7 +4,7 @@ import util
 
 def grayRevToBinary(x, n):
     y = 0*x
-    for i in xrange(n):
+    for i in range(n):
         y <<= 1
         y |= x&1
         x >>= 1
@@ -13,6 +13,11 @@ def grayRevToBinary(x, n):
         y ^= y >> shift
         shift<<=1
     return y
+
+class Constellation:
+    def __init__(self, Nbpsc, symbols):
+        self.Nbpsc = Nbpsc
+        self.symbols = symbols
 
 def qam_constellation(Nbpsc):
     scale = 1.
@@ -25,12 +30,12 @@ def qam_constellation(Nbpsc):
     symbols = (2*grayRevToBinary(np.arange(1<<n), n) + 1 - (1<<n)) * scale
     if Nbpsc != 1:
         symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
-    return symbols
+    return Constellation(Nbpsc, symbols)
 
-bpsk = (1, qam_constellation(1))
-qpsk = (2, qam_constellation(2))
-qam16 = (4, qam_constellation(4))
-qam64 = (6, qam_constellation(6))
+bpsk = qam_constellation(1)
+qpsk = qam_constellation(2)
+qam16 = qam_constellation(4)
+qam64 = qam_constellation(6)
 
 def encode(interleaved_bits, rate):
     return rate.constellation[util.shiftin(interleaved_bits, rate.Nbpsc)]
