@@ -7,7 +7,12 @@
 #include <limits>
 #include "kalman.h"
 #include <cassert>
-//#include <valgrind/memcheck.h>
+
+#ifdef USE_VALGRIND
+#include <valgrind/memcheck.h>
+#else
+#define VALGRIND_CHECK_VALUE_IS_DEFINED(x) true
+#endif
 
 WiFi80211::WiFi80211() : ofdm(audioLTFormat()), code(7, 0133, 0171)
 {
