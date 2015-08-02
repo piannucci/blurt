@@ -18,7 +18,7 @@ wifi = wifi80211
 
 fn = '35631__reinsamba__crystal-glass.wav'
 Fs = 96000.
-Fc = 17000.
+Fc = 20000.
 upsample_factor = 32
 mask_noise = maskNoise.prepareMaskNoise(fn, Fs, Fc, upsample_factor)
 mask_noise = mask_noise[:int(Fs)]
