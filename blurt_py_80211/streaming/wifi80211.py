@@ -8,11 +8,15 @@ from contextlib import contextmanager
 import time
 import _thread
 
+############################ Parameters ############################
+
 Fs, Fc, upsample_factor = 96e3, 20e3, 32
 
+mtu = 150
+
 showVU = True
-bufSize = 2048
-chunkQueueDepth = 16
+audioInputFrameSize = 2048
+audioInputQueueLength = .33 # seconds
 packetQueueDepth = 64
 
 nfft = 64
@@ -22,12 +26,6 @@ lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1, 1,-1,-1, 1,
 ts_reps = 6 # 2
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
-Nsc = dataSubcarriers.size
-Nsc_used = dataSubcarriers.size + pilotSubcarriers.size
-N_sts_period = nfft // 4
-N_sts_samples = ts_reps * (ncp + nfft)
-N_sts_reps = N_sts_samples // N_sts_period
-N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
 pilotTemplate = np.array([1,1,1,-1])
 
 ############################ Scrambler ############################
@@ -62,17 +60,11 @@ def FCS(calculationFields):
 def checkFCS(frame):
     return (remainder(np.r_[np.ones(32, int), np.zeros(frame.size, int)] ^ np.r_[frame, np.zeros(32, int)]) == correct_remainder).all()
 
-G = shiftout(0x104c11db7, 33).astype(bool)
 correct_remainder = shiftout(0xc704dd7b, 32).astype(bool)
-lut,a,b,c = np.empty(1<<16, np.uint32), np.empty(48, np.uint8), np.arange(32), np.arange(16)[::-1]
-d = a[:-33:-1]
-for j in range(1<<16):
-    a[:16] = (j >> c) & 1
-    a[16:] = 0
-    for i in range(16):
-        if a[i]:
-            a[i:i+33] ^= G
-    lut[j] = (d << b).sum()
+lut = np.arange(1<<16, dtype=np.uint64) << 32
+for i in range(47,31,-1):
+    lut ^= (0x104c11db7 << (i-32)) * ((lut >> i) & 1)
+lut = lut.astype(np.uint32)
 
 ############################ CC ############################
 
@@ -159,7 +151,6 @@ class Rate:
             symbols = (2*grayRevToBinary(n)+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
             self.symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
         self.puncturingMatrix = {(1,2):np.array([1,1]), (2,3):np.array([1,1,1,0]), (3,4):np.array([1,1,1,0,0,1]), (5,6):np.array([1,1,1,0,0,1,1,0,0,1])}[ratio]
-        self.Ncbps = Nsc * self.Nbpsc
 
     def depuncture(self, input):
         m = self.puncturingMatrix
@@ -185,6 +176,14 @@ class Rate:
 rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)), 0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
 
 ############################ OFDM ############################
+
+Nsc = dataSubcarriers.size
+Nsc_used = dataSubcarriers.size + pilotSubcarriers.size
+N_sts_period = nfft // 4
+N_sts_samples = ts_reps * (ncp + nfft)
+N_sts_reps = N_sts_samples // N_sts_period
+N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
+N_symbol_samples = nfft+ncp
 
 def interleave(input, Ncbps, Nbpsc, reverse=False):
     s = max(Nbpsc//2, 1)
@@ -262,13 +261,13 @@ def train(y):
     var_ni = var_x/Nsc_used/snr
     return TrainingData(G, uncertainty, var_ni, theta), i, 10*np.log10(snr)
 
-def ofdm_symbols(source, i, training_data):
+def decodeOFDM(syms, i, training_data):
     pilotPolarity = (1. - 2.*x for x in itertools.cycle(scrambler_y[0x7F]))
     sigma_noise = 4*training_data.var_n*.5
     sigma = sigma_noise + 4*np.sin(training_data.uncertainty)**2
     P, x, R = np.diag([sigma, sigma, training_data.uncertainty**2]), np.array([[4.,0.,0.]]).T, np.diag([sigma_noise, sigma_noise])
     Q = P * 0.1
-    for y in source:
+    for y in syms:
         sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, training_data.theta)) * training_data.G
         i += nfft+ncp
         pilot = np.sum(sym[pilotSubcarriers] * next(pilotPolarity) * pilotTemplate)
@@ -355,7 +354,9 @@ def decodeBlurt(source):
             try:
                 with c.push():
                     training_data, training_advance, lsnr = train(next(c.chunk(i, N_training_samples)))
-                syms = ofdm_symbols(c.chunk(i+training_advance, nfft+ncp), training_advance, training_data)
+                i += training_advance
+                syms = c.chunk(i, nfft+ncp)
+                syms = decodeOFDM(syms, training_advance, training_data)
                 lsig = next(syms)
                 lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
                 if not int(lsig_bits.sum()) & 1 == 0:
@@ -364,17 +365,21 @@ def decodeBlurt(source):
                 if not lsig_bits & 0xF in rates:
                     continue
                 rate = rates[lsig_bits & 0xF]
-                length_coded_bits = (((lsig_bits >> 5) & 0xFFF)*8 + 16+6)*2
+                length_octets = (lsig_bits >> 5) & 0xFFF
+                if length_octets > mtu:
+                    continue
+                length_coded_bits = (length_octets*8 + 16+6)*2
                 # need a sanity check on length_coded_bits to limit processing
-                length_symbols = (length_coded_bits+rate.Ncbps-1) // rate.Ncbps
+                Ncbps = Nsc * rate.Nbpsc
+                length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
                 plcp_coded_bits = interleave(encode(np.r_[(lsig_bits >> np.arange(18)) & 1, 0,0,0,0,0,0]), Nsc, 1).astype(int)
                 dispersion = (lsig-(plcp_coded_bits*2-1)).var()
                 demapped_bits = np.array([rate.demap(next(syms), dispersion) for _ in range(length_symbols)])
-                llr = rate.depuncture(interleave(demapped_bits, rate.Ncbps, rate.Nbpsc, True))[:length_coded_bits]
+                llr = rate.depuncture(interleave(demapped_bits, Ncbps, rate.Nbpsc, True))[:length_coded_bits]
                 output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
                 if not checkFCS(output_bits):
                     continue
-                j = i + training_advance + (nfft+ncp)*(length_symbols+1)
+                j = i + (nfft+ncp)*(length_symbols+1)
                 yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
             except Exception as e:
                 traceback.print_exc()
@@ -383,8 +388,8 @@ def decodeBlurt(source):
 
 class QueueStream(audio.stream.StreamArray):
     def init(self):
-        self.in_queue = queue.Queue(chunkQueueDepth)
-        self.inBufSize = bufSize
+        self.in_queue = queue.Queue(int(np.ceil(audioInputQueueLength * Fs / audioInputFrameSize)))
+        self.inBufSize = audioInputFrameSize
     def consume(self, sequence):
         try:
             self.in_queue.put_nowait(sequence)
