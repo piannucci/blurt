@@ -21,12 +21,16 @@ packetQueueDepth = 64
 
 nfft = 64
 ncp = 64 # 16
+sts_freq = np.zeros(64, np.complex128)
+sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4], (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))
 lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1, 1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
                      0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
 ts_reps = 6 # 2
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
+
+stereoDelay = .005
 
 ############################ Scrambler ############################
 
@@ -151,6 +155,7 @@ class Rate:
             symbols = (2*grayRevToBinary(n)+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
             self.symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
         self.puncturingMatrix = {(1,2):np.array([1,1]), (2,3):np.array([1,1,1,0]), (3,4):np.array([1,1,1,0,0,1]), (5,6):np.array([1,1,1,0,0,1,1,0,0,1])}[ratio]
+        self.ratio = ratio
 
     def depuncture(self, input):
         m = self.puncturingMatrix
@@ -287,102 +292,134 @@ def decodeOFDM(syms, i, training_data):
 
 def downconvert(source):
     i = 0
-    lowpass = iir.lowpass(.8/upsample_factor, order=6, continuous=True, dtype=np.complex128)
+    lp = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
     s = -1j*2*np.pi*Fc/Fs
     for y in source:
-        yield lowpass(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
+        yield lp(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
         i += y.size
 
-class Cursor(object):
-    @contextmanager
-    def popper(cursor):
-        yield
-        cursor.pop()
-    """
-    Given an iterator which yields arrays, provides an indexed view of the
-    underlying (concatenated) stream.  Advancing is a forward-only, destructive
-    operation.  To relax this limitation, keeps a stack of states.
-    """
-    def __init__(self, source):
-        self.stack = []
-        self.y = np.empty(0)
-        self.k = 0
-        self.d = collections.deque()
+class StreamIndexer(object):
+    def __init__(self, source, bufferSize=96000*10):
+        self.bufferSize = bufferSize
         self.source = source
-    def push(self):
-        self.stack.append((self.y, self.k, copy.copy(self.d)))
-        return Cursor.popper(self)
-    def pop(self):
-        self.y, self.k, self.d = self.stack.pop()
-    def seek(self, i):
-        assert 0 <= self.k <= i
-        while self.k + self.y.size <= i:
-            self.advance()
-    def advance(self):
-        assert 0 <= self.k
-        self.k += self.y.size
-        if not self.d:
-            newval = next(self.source)
-            for state in self.stack:
-                state[2].append(newval)
-            self.y = newval
+        y = next(self.source)
+        self.dtype = y.dtype
+        self.y = np.empty(self.bufferSize, self.dtype)
+        self.y[:y.size] = y
+        self.k = 0
+        self.size = y.size
+    def grow(self, i):
+        if i - self.k > self.bufferSize:
+            raise ValueError('stream buffer size limit exceeded')
+        # load indices < i
+        while self.k + self.size < i:
+            y = next(self.source)
+            start = (self.k + self.size) % self.bufferSize
+            stop = start + y.size
+            if stop <= self.bufferSize:
+                self.y[start:stop] = y
+            else:
+                self.y[start:] = y[:self.bufferSize-start]
+                self.y[:stop-self.bufferSize] = y[self.bufferSize-start:]
+            self.size += y.size
+    def shrink(self, i):
+        # discard indices < i
+        self.grow(i)
+        delta = max(i-self.k, 0)
+        self.k += delta
+        self.size -= delta
+    def __getitem__(self, sl):
+        if isinstance(sl, slice):
+            start = sl.start
+            if start is None:
+                start = 0
+            if start < self.k:
+                raise IndexError('stream index out of range')
+            stop = sl.stop
+            if stop is None:
+                raise IndexError('stream index out of range')
+            step = sl.step
+            if step is None:
+                step = 1
+            if step < 0:
+                raise ValueError('slice step must be positive')
+            self.grow(stop)
+            size = stop - start
+            start %= self.bufferSize
+            stop = start + size
+            if stop <= self.bufferSize:
+                return self.y[start:stop:step]
+            else:
+                return np.r_[self.y[start:], self.y[:stop-self.bufferSize]][::step]
         else:
-            self.y = self.d.popleft()
-    # preconditions: 0 <= k <= i, y = source[k:k+y.size], length > 0
-    # postcondition: result = source[i:i+length]
-    def chunk(self, i, length):
-        assert 0 <= self.k <= i and length > 0
-        result = np.empty(length, np.complex128)
-        while True:
-            self.seek(i)
-            result[:self.y.size - (i-self.k)] = self.y[i-self.k : i-self.k + length]
-            while self.k + self.y.size < i+length:
-                self.advance()
-                result[self.k-i:self.k-i + self.y.size] = self.y[:length - (self.k-i)]
-            yield result
-            i += length
+            if sl < self.k:
+                raise IndexError('stream index out of range')
+            self.grow(sl+1)
+            return self.y[sl % self.bufferSize]
+
+class LeasedStreamIndexer(StreamIndexer):
+    def __init__(self, source):
+        super().__init__(source)
+        self.leases = {}
+        self.nextlease = 0
+    def newlease(self, i):
+        # incref indices >= i
+        lease = self.nextlease
+        self.nextlease += 1
+        self.leases[lease] = i
+        return lease
+    def dellease(self, lease):
+        del self.leases[lease]
+    def movelease(self, lease, i):
+        self.leases[lease] = i
+    @contextmanager
+    def lease(self, i):
+        l = self.newlease(i)
+        yield
+        self.dellease(i)
+    def collect(self):
+        # ensure that any buffers which are not leased are unloaded
+        leases = self.leases.values()
+        self.shrink(self.k+self.size if not leases else min(leases))
 
 def decodeBlurt(source):
     j = 0 # ignore upto cursor
     s1,s2 = itertools.tee(downconvert(source))
-    c = Cursor(s2)
+    c = StreamIndexer(s2)
     for i in stsDetect(s1):
         if i < j:
             continue
-        c.seek(i)
-        with c.push():
-            try:
-                with c.push():
-                    training_data, training_advance, lsnr = train(next(c.chunk(i, N_training_samples)))
-                i += training_advance
-                syms = c.chunk(i, nfft+ncp)
-                syms = decodeOFDM(syms, training_advance, training_data)
-                lsig = next(syms)
-                lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
-                if not int(lsig_bits.sum()) & 1 == 0:
-                    continue
-                lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
-                if not lsig_bits & 0xF in rates:
-                    continue
-                rate = rates[lsig_bits & 0xF]
-                length_octets = (lsig_bits >> 5) & 0xFFF
-                if length_octets > mtu:
-                    continue
-                length_coded_bits = (length_octets*8 + 16+6)*2
-                # need a sanity check on length_coded_bits to limit processing
-                Ncbps = Nsc * rate.Nbpsc
-                length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
-                plcp_coded_bits = interleave(encode(np.r_[(lsig_bits >> np.arange(18)) & 1, 0,0,0,0,0,0]), Nsc, 1).astype(int)
-                dispersion = (lsig-(plcp_coded_bits*2-1)).var()
-                demapped_bits = np.array([rate.demap(next(syms), dispersion) for _ in range(length_symbols)])
-                llr = rate.depuncture(interleave(demapped_bits, Ncbps, rate.Nbpsc, True))[:length_coded_bits]
-                output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
-                if not checkFCS(output_bits):
-                    continue
-                j = i + (nfft+ncp)*(length_symbols+1)
-                yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
-            except Exception as e:
-                traceback.print_exc()
+        c.shrink(i)
+        try:
+            training_data, training_advance, lsnr = train(c[i:i+N_training_samples])
+            i += training_advance
+            syms = (c[i+j*N_symbol_samples:i+(j+1)*N_symbol_samples] for j in itertools.count())
+            syms = decodeOFDM(syms, training_advance, training_data)
+            lsig = next(syms)
+            lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
+            if not int(lsig_bits.sum()) & 1 == 0:
+                continue
+            lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
+            if not lsig_bits & 0xF in rates:
+                continue
+            rate = rates[lsig_bits & 0xF]
+            length_octets = (lsig_bits >> 5) & 0xFFF
+            if length_octets > mtu:
+                continue
+            length_coded_bits = (length_octets*8 + 16+6)*2
+            Ncbps = Nsc * rate.Nbpsc
+            length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
+            plcp_coded_bits = interleave(encode(np.r_[(lsig_bits >> np.arange(18)) & 1, 0,0,0,0,0,0]), Nsc, 1).astype(int)
+            dispersion = (lsig-(plcp_coded_bits*2-1)).var()
+            demapped_bits = np.array([rate.demap(next(syms), dispersion) for _ in range(length_symbols)])
+            llr = rate.depuncture(interleave(demapped_bits, Ncbps, rate.Nbpsc, True))[:length_coded_bits]
+            output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
+            if not checkFCS(output_bits):
+                continue
+            j = i + (nfft+ncp)*(length_symbols+1)
+            yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
+        except Exception as e:
+            traceback.print_exc()
 
 ############################ Audio ############################
 
