@@ -297,7 +297,7 @@ def decodeOFDM(syms, i, training_data):
 
 def downconvert(source):
     i = 0
-    lp = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
+    lp = iir.lowpass(.45/upsample_factor, order=6)
     s = -1j*2*np.pi*Fc/Fs
     for y in source:
         yield lp(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
@@ -440,8 +440,8 @@ def subcarriersFromBits(bits, rate, scramblerState):
 
 def encodeBlurt(source):
     cutoff = (Nsc_used/2 + .5)/nfft
-    lp1 = iir.lowpass(cutoff/upsample_factor, order=6, continuous=True, dtype=np.complex128, method='Ch', ripple=-.021)
-    lp2 = iir.lowpass(cutoff/upsample_factor, order=6, continuous=True, dtype=np.complex128, method='Ch', ripple=-.021)
+    lp1 = iir.lowpass(cutoff/upsample_factor, order=6, method='Ch', ripple=-.021)
+    lp2 = lp1.copy()
     baseRate = rates[0xb]
     for octets in source:
         # prepare header and payload bits
