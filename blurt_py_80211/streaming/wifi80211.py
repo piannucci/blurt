@@ -87,12 +87,17 @@ output_map_1_soft = output_map_1.astype(int) * 2 - 1
 output_map_2_soft = output_map_2.astype(int) * 2 - 1
 
 def encode(y):
-    output, x, sh = np.empty(y.size*2, np.uint8), y << 6, 0
-    for i in range(x.size):
-        sh = (sh>>1) ^ x[i]
-        output[2*i+0] = output_map_1[sh]
-        output[2*i+1] = output_map_2[sh]
-    return output
+    output = np.empty(y.size*2, np.uint8)
+    code = """
+    int sh = 0, N = y.extent(blitz::firstDim);
+    for (int i=0; i<N; i++) {
+        sh = (sh>>1) ^ ((int)y(i) << 6);
+        output(2*i+0) = output_map_1(sh);
+        output(2*i+1) = output_map_2(sh);
+    }
+    """
+    weave.inline(code, ['y','output','output_map_1','output_map_2'], type_converters=weave.converters.blitz)
+    return output.flatten()
 
 def decode(llr):
     N = llr.size//2
@@ -420,6 +425,59 @@ def decodeBlurt(source):
             yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
         except Exception as e:
             traceback.print_exc()
+
+def subcarriersFromBits(bits, rate, scramblerState):
+    Ncbps = Nsc * rate.Nbpsc
+    Nbps = Ncbps * rate.ratio[0] // rate.ratio[1]
+    pad_bits = 6 + -(bits.size + 6) % Nbps
+    scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ np.resize(scrambler_y[scramblerState], bits.size + pad_bits)
+    scrambled[bits.size:bits.size+6] = 0
+    coded = encode(scrambled)
+    punctured = coded[np.resize(rate.puncturingMatrix.astype(bool), coded.size)]
+    interleaved = interleave(punctured.reshape(-1, Ncbps), Nsc * rate.Nbpsc, rate.Nbpsc)
+    grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)[None,:]).sum(1)
+    return rate.symbols[grouped].reshape(-1, Nsc)
+
+def encodeBlurt(source):
+    lp1 = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
+    lp2 = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
+    baseRate = rates[0xb]
+    for octets in source:
+        # prepare header and payload bits
+        rateEncoding = 0xb
+        rate = rates[rateEncoding]
+        data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
+        data_bits = np.r_[np.zeros(16, int), data_bits, FCS(data_bits)]
+        plcp_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
+        plcp_bits[-1] = plcp_bits.sum() & 1
+        # OFDM modulation
+        subcarriers = np.vstack((subcarriersFromBits(plcp_bits, baseRate, 0), subcarriersFromBits(data_bits, rate, 0x5d)))
+        pilotPolarity = (1. - 2.*x for x in itertools.cycle(scrambler_y[0x7F]))
+        symbols = np.zeros((subcarriers.shape[0],nfft), complex)
+        symbols[:,dataSubcarriers] = subcarriers
+        symbols[:,pilotSubcarriers] = pilotTemplate * np.fromiter(pilotPolarity, dtype=float, count=subcarriers.shape[0])[:,None]
+        sts_time = np.tile(np.fft.ifft(sts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
+        lts_time = np.tile(np.fft.ifft(lts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
+        symbols  = np.tile(np.fft.ifft(symbols ), (1,(ncp        +nfft-1)//nfft + 1       + 1))[:,-ncp        %nfft:-nfft+1]
+        # temporal smoothing
+        subsequences = [sts_time, lts_time] + list(symbols)
+        output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, np.complex)
+        i = 0
+        for x in subsequences:
+            j = i + len(x)-1
+            output[i] += .5*x[0]
+            output[i+1:j] += x[1:-1]
+            output[j] += .5*x[-1]
+            i = j
+        output = lp2(lp1(np.vstack((output, np.zeros((upsample_factor-1, output.size), output.dtype))).T.flatten()*upsample_factor))
+        # modulation and pre-emphasis
+        output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * Fc / Fs)).real
+        yield output
+        for i in range(13):
+            output = np.diff(np.r_[0,output])
+        output *= abs(np.exp(1j*2*np.pi*Fc/Fs)-1)**-13
+        # stereo beamforming reduction
+        yield np.vstack((np.r_[np.zeros(stereoDelay*Fs), output], np.r_[output, np.zeros(stereoDelay*Fs)])).T
 
 ############################ Audio ############################
 
