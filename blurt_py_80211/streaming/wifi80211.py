@@ -439,8 +439,9 @@ def subcarriersFromBits(bits, rate, scramblerState):
     return rate.symbols[grouped].reshape(-1, Nsc)
 
 def encodeBlurt(source):
-    lp1 = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
-    lp2 = iir.lowpass(.45/upsample_factor, order=6, continuous=True, dtype=np.complex128)
+    cutoff = (Nsc_used/2 + .5)/nfft
+    lp1 = iir.lowpass(cutoff/upsample_factor, order=6, continuous=True, dtype=np.complex128, method='Ch', ripple=-.021)
+    lp2 = iir.lowpass(cutoff/upsample_factor, order=6, continuous=True, dtype=np.complex128, method='Ch', ripple=-.021)
     baseRate = rates[0xb]
     for octets in source:
         # prepare header and payload bits
@@ -469,7 +470,8 @@ def encodeBlurt(source):
             output[i+1:j] += x[1:-1]
             output[j] += .5*x[-1]
             i = j
-        output = lp2(lp1(np.vstack((output, np.zeros((upsample_factor-1, output.size), output.dtype))).T.flatten()*upsample_factor))
+        output = np.vstack((output, np.zeros((upsample_factor-1, output.size), output.dtype))).T.flatten()*upsample_factor
+        output = lp2(lp1(output))
         # modulation and pre-emphasis
         output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * Fc / Fs)).real
         yield output
