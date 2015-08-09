@@ -1,12 +1,6 @@
 #!/usr/bin/env python
-import numpy as np, scipy.linalg, weave, collections, itertools, queue
-import sys, copy
-import iir
-import audio
-import traceback
-from contextlib import contextmanager
-import time
-import _thread
+import sys, time, traceback, numpy as np, weave, collections, itertools, queue, _thread
+import iir, audio
 
 ############################ Parameters ############################
 
@@ -25,7 +19,7 @@ sts_freq = np.zeros(64, np.complex128)
 sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4], (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))
 lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1, 1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
                      0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
-ts_reps = 6 # 2
+ts_reps = 6 # 6
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
