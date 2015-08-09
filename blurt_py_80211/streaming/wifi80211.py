@@ -36,29 +36,18 @@ for i in range(127):
 
 ############################ CRC ############################
 
-def shiftout(x, n):
-    return (x >> np.arange(n)[::-1]) & 1
-
-def remainder(a):
-    a = a[::-1]
-    if a.size % 16:
-        a = np.r_[a, np.zeros(-a.size%16, int)]
+def CRC(x):
+    a = np.r_[np.r_[np.zeros(x.size, int), np.ones(32, int)] ^
+              np.r_[np.zeros(32, int), x[::-1]], np.zeros(-x.size%16, int)]
     a = (a.reshape(-1, 16) << np.arange(16)).sum(1)[::-1]
     code = """
     uint32_t r = 0, A=a.extent(blitz::firstDim);
     for (int i=0; i<A; i++)
-        r = ((r << 16) & 0xffffffff) ^ a(i) ^ lut(r >> 16);
+        r = (r << 16) ^ a(i) ^ lut(r >> 16);
     return_val = r;
     """
-    return shiftout(weave.inline(code, ['a', 'lut'], type_converters=weave.converters.blitz), 32)
+    return weave.inline(code, ['a', 'lut'], type_converters=weave.converters.blitz)
 
-def FCS(calculationFields):
-    return 1 & ~remainder(np.r_[np.ones(32, int), np.zeros(calculationFields.size, int)] ^ np.r_[calculationFields, np.zeros(32, int)])
-
-def checkFCS(frame):
-    return (remainder(np.r_[np.ones(32, int), np.zeros(frame.size, int)] ^ np.r_[frame, np.zeros(32, int)]) == correct_remainder).all()
-
-correct_remainder = shiftout(0xc704dd7b, 32).astype(bool)
 lut = np.arange(1<<16, dtype=np.uint64) << 32
 for i in range(47,31,-1):
     lut ^= (0x104c11db7 << (i-32)) * ((lut >> i) & 1)
@@ -95,13 +84,13 @@ def encode(y):
 
 def decode(llr):
     N = llr.size//2
-    bt = np.empty((N, 128), np.uint8);
     x = llr[0:2*N:2,None]*output_map_1_soft + llr[1:2*N:2,None]*output_map_2_soft
     msg = np.empty(N, np.uint8)
     code = """
     const int M = 128;
     int64_t *cost = new int64_t [M*2];
     int64_t *scores = new int64_t [M];
+    uint8_t bt[N][M];
     for (int i=0; i<M; i++)
         scores[i] = 0;
     for (int k=0; k<N; k++) {
@@ -110,39 +99,25 @@ def decode(llr):
             cost[2*i+1] = scores[state_inv_map(i, 1)] + x(k, i);
         }
         for (int i=0; i<M; i++) {
-            int a, b;
-            a = cost[2*i+0];
-            b = cost[2*i+1];
-            bt(k, i) = (a<b) ? 1 : 0;
+            int a = cost[2*i+0];
+            int b = cost[2*i+1];
+            bt[k][i] = (a<b) ? 1 : 0;
             scores[i] = (a<b) ? b : a;
         }
     }
     int i = (scores[0] < scores[1]) ? 1 : 0;
     for (int k=N-1; k>=0; k--) {
-        int j = bt(k, i);
+        int j = bt[k][i];
         msg(k) = state_inv_map_tag(i,j);
         i = state_inv_map(i,j);
     }
     delete [] cost;
     delete [] scores;
     """
-    weave.inline(code, ['N','state_inv_map', 'x','bt','state_inv_map_tag', 'msg'], type_converters=weave.converters.blitz)
+    weave.inline(code, ['N','state_inv_map','x','state_inv_map_tag','msg'], type_converters=weave.converters.blitz)
     return msg
 
 ############################ Rates ############################
-
-def grayRevToBinary(n):
-    x = np.arange(1<<n)
-    y = np.zeros_like(x)
-    for i in range(n):
-        y <<= 1
-        y |= x&1
-        x >>= 1
-    shift = 1
-    while shift<n:
-        y ^= y >> shift
-        shift<<=1
-    return y
 
 class Rate:
     def __init__(self, Nbpsc, ratio):
@@ -151,31 +126,28 @@ class Rate:
             self.symbols = np.array([-1,1])
         else:
             n = Nbpsc//2
-            symbols = (2*grayRevToBinary(n)+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
+            grayRevCode = sum(((np.arange(1<<n) >> i) & 1) << (n-1-i) for i in range(n))
+            grayRevCode ^= grayRevCode >> 1
+            grayRevCode ^= grayRevCode >> 2
+            symbols = (2*grayRevCode+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
             self.symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
-        self.puncturingMatrix = {(1,2):np.array([1,1]), (2,3):np.array([1,1,1,0]), (3,4):np.array([1,1,1,0,0,1]), (5,6):np.array([1,1,1,0,0,1,1,0,0,1])}[ratio]
+        self.puncturingMatrix = np.bool_({(1,2):[1,1], (2,3):[1,1,1,0], (3,4):[1,1,1,0,0,1], (5,6):[1,1,1,0,0,1,1,0,0,1]}[ratio])
         self.ratio = ratio
-
-    def depuncture(self, input):
-        m = self.puncturingMatrix
-        output = np.zeros(((input.size + m.sum() - 1) // m.sum()) * m.size, input.dtype)
-        output[np.resize(m, output.size).astype(bool)] = input
+    def depuncture(self, y):
+        output = np.zeros((y.size + self.ratio[1]-1) // self.ratio[1] * self.ratio[0] * 2, y.dtype)
+        output[np.resize(self.puncturingMatrix, output.size)] = y
         return output
-
     def demap(self, y, dispersion):
         n = self.Nbpsc
         squared_distance = np.abs(self.symbols - y[:,None])**2
         ll = -np.log(np.pi * dispersion) - squared_distance / dispersion
         ll -= np.logaddexp.reduce(ll, 1)[:,None]
         j = np.arange(1<<n)
-        ll0 = np.zeros((y.size, n), float)
-        ll1 = np.zeros((y.size, n), float)
+        llr = np.zeros((y.size, n), int)
+        logsumexp = np.logaddexp.reduce
         for i in range(n):
-            idx0 = np.where(0 == (j & (1<<i)))[0]
-            idx1 = np.where(j & (1<<i))[0]
-            ll0[:,i] = np.logaddexp.reduce(ll[:,idx0], 1)
-            ll1[:,i] = np.logaddexp.reduce(ll[:,idx1], 1)
-        return np.int64(np.clip(10.*(ll1-ll0), -1e4, 1e4)).flatten()
+            llr[:,i] = 10 * (logsumexp(ll[:,0 != (j & (1<<i))], 1) - logsumexp(ll[:,0 == (j & (1<<i))], 1))
+        return np.clip(llr, -1e4, 1e4).flatten()
 
 rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)), 0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
 
@@ -199,15 +171,6 @@ def interleave(input, Ncbps, Nbpsc, reverse=False):
         i = s*(j//s) + (j + (16*j//Ncbps)) % s
         p = 16*i - (Ncbps - 1) * (16*i//Ncbps)
     return input[...,p].flatten()
-
-# y is a slice of the input stream
-# k is the index of the first sample in y
-# theta is the CFO in radians/sample
-def remove_cfo(y, k, theta):
-   return y * np.exp(-1j*theta*np.r_[k:k+y.size])
-
-estimate_cfo = lambda arr, overlap, span: np.angle((arr[:-overlap].conj()*arr[overlap:]).sum())/span
-TrainingData = collections.namedtuple('TrainingData', ['G', 'uncertainty', 'var_n', 'theta'])
 
 def autocorrelate(source):
     y_hist = np.zeros(0)
@@ -236,13 +199,15 @@ def peakDetect(source, l):
             continue
         else:
             y_hist = y[count_consumed:]
-            for j in (np.lib.stride_tricks.as_strided(y, (2*l+1,count_needed-2*l), (y.strides[0],)*2).argmax(0) == l).nonzero()[0]:
-                yield j + i
+            yield from (np.lib.stride_tricks.as_strided(y, (2*l+1,count_needed-2*l), (y.strides[0],)*2).argmax(0) == l).nonzero()[0] + i
             i += count_consumed
 
-def stsDetect(source):
-    for i in peakDetect(autocorrelate(source), 25):
-        yield i * N_sts_period + 16
+estimate_cfo = lambda arr, overlap, span: np.angle((arr[:-overlap].conj()*arr[overlap:]).sum())/span
+TrainingData = collections.namedtuple('TrainingData', ['G', 'uncertainty', 'var_n', 'theta'])
+# y is a slice of the input stream
+# k is the index of the first sample in y
+# theta is the CFO in radians/sample
+remove_cfo = lambda y, k, theta: y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
 def train(y):
     i = 0
@@ -288,14 +253,6 @@ def decodeOFDM(syms, i, training_data):
         u = x[0,0] - x[1,0]*1j
         u /= np.abs(u)
         yield sym[dataSubcarriers] * u
-
-def downconvert(source):
-    i = 0
-    lp = iir.lowpass(.45/upsample_factor, order=6)
-    s = -1j*2*np.pi*Fc/Fs
-    for y in source:
-        yield lp(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
-        i += y.size
 
 class StreamIndexer(object):
     def __init__(self, source, bufferSize=96000*10):
@@ -356,36 +313,20 @@ class StreamIndexer(object):
             self.grow(sl+1)
             return self.y[sl % self.bufferSize]
 
-class LeasedStreamIndexer(StreamIndexer):
-    def __init__(self, source):
-        super().__init__(source)
-        self.leases = {}
-        self.nextlease = 0
-    def newlease(self, i):
-        # incref indices >= i
-        lease = self.nextlease
-        self.nextlease += 1
-        self.leases[lease] = i
-        return lease
-    def dellease(self, lease):
-        del self.leases[lease]
-    def movelease(self, lease, i):
-        self.leases[lease] = i
-    @contextmanager
-    def lease(self, i):
-        l = self.newlease(i)
-        yield
-        self.dellease(i)
-    def collect(self):
-        # ensure that any buffers which are not leased are unloaded
-        leases = self.leases.values()
-        self.shrink(self.k+self.size if not leases else min(leases))
+def downconvert(source):
+    i = 0
+    lp = iir.lowpass(.45/upsample_factor, order=6)
+    s = -1j*2*np.pi*Fc/Fs
+    for y in source:
+        yield lp(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
+        i += y.size
 
 def decodeBlurt(source):
     j = 0 # ignore upto cursor
     s1,s2 = itertools.tee(downconvert(source))
     c = StreamIndexer(s2)
-    for i in stsDetect(s1):
+    for k in peakDetect(autocorrelate(s1), 25):
+        i = k * N_sts_period + 16
         if i < j:
             continue
         c.shrink(i)
@@ -413,7 +354,7 @@ def decodeBlurt(source):
             demapped_bits = np.array([rate.demap(next(syms), dispersion) for _ in range(length_symbols)])
             llr = rate.depuncture(interleave(demapped_bits, Ncbps, rate.Nbpsc, True))[:length_coded_bits]
             output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
-            if not checkFCS(output_bits):
+            if not CRC(output_bits) == 0xc704dd7b:
                 continue
             j = i + (nfft+ncp)*(length_symbols+1)
             yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
@@ -426,8 +367,7 @@ def subcarriersFromBits(bits, rate, scramblerState):
     pad_bits = 6 + -(bits.size + 6) % Nbps
     scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ np.resize(scrambler_y[scramblerState], bits.size + pad_bits)
     scrambled[bits.size:bits.size+6] = 0
-    coded = encode(scrambled)
-    punctured = coded[np.resize(rate.puncturingMatrix.astype(bool), coded.size)]
+    punctured = encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
     interleaved = interleave(punctured.reshape(-1, Ncbps), Nsc * rate.Nbpsc, rate.Nbpsc)
     grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)[None,:]).sum(1)
     return rate.symbols[grouped].reshape(-1, Nsc)
@@ -442,7 +382,7 @@ def encodeBlurt(source):
         rateEncoding = 0xb
         rate = rates[rateEncoding]
         data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
-        data_bits = np.r_[np.zeros(16, int), data_bits, FCS(data_bits)]
+        data_bits = np.r_[np.zeros(16, int), data_bits, (~CRC(data_bits) >> np.arange(32)[::-1]) & 1]
         plcp_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
         plcp_bits[-1] = plcp_bits.sum() & 1
         # OFDM modulation
@@ -468,9 +408,8 @@ def encodeBlurt(source):
         output = lp2(lp1(output))
         # modulation and pre-emphasis
         output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * Fc / Fs)).real
-        yield output
         for i in range(13):
-            output = np.diff(np.r_[0,output])
+            output = np.diff(np.r_[output,0])
         output *= abs(np.exp(1j*2*np.pi*Fc/Fs)-1)**-13
         # stereo beamforming reduction
         yield np.vstack((np.r_[np.zeros(stereoDelay*Fs), output], np.r_[output, np.zeros(stereoDelay*Fs)])).T
@@ -478,7 +417,8 @@ def encodeBlurt(source):
 ############################ Audio ############################
 
 class QueueStream(audio.stream.StreamArray):
-    def init(self):
+    def __init__(self):
+        super().__init__()
         self.in_queue = queue.Queue(int(np.ceil(audioInputQueueLength * Fs / audioInputFrameSize)))
         self.inBufSize = audioInputFrameSize
     def consume(self, sequence):
@@ -496,44 +436,61 @@ class QueueStream(audio.stream.StreamArray):
             except:
                 pass
 
-qs = QueueStream()
-ap = audio.AudioInterface(None)
-q = queue.Queue(packetQueueDepth)
+class IteratorStream(audio.stream.ThreadedStream):
+    def __init__(self, source):
+        super().__init__(channels=2)
+        self.source = source
+    def thread_produce(self):
+        return next(self.source)
 
-stopped = False
-
-def decoderThread():
-    try:
-        for packet in decodeBlurt(qs):
-            q.put(packet)
-    except Exception as e:
-        print('decoderThread exception')
-        traceback.print_exc()
-    finally:
-        global stopped
-        stopped = True
-
-_thread.start_new_thread(decoderThread, ())
-
-try:
-    ap.record(qs, Fs)
-    print('Listening...')
-    while not stopped:
+if __name__ == '__main__':
+    if sys.argv[1] == '--tx':
+        encoder = encodeBlurt(np.r_[ord('A') + np.random.random_integers(0,25,26), np.fromstring('%06d' % i, np.uint8)] for i in itertools.count())
+        ap = audio.AudioInterface(None)
+        stopped = False
         try:
-            payload, lsnr = q.get(timeout=.01)
-            if showVU:
-                sys.stdout.write('\r\x1b[2K')
-            print(payload, lsnr)
-        except queue.Empty:
+            ap.play(IteratorStream(encoder), Fs)
+            print('Transmitting...')
+            while not stopped:
+                time.sleep(.1)
+        except KeyboardInterrupt:
+            pass
+        print('Stopping...')
+        ap.stop()
+    elif sys.argv[1] == '--rx':
+        qs = QueueStream()
+        q = queue.Queue(packetQueueDepth)
+        ap = audio.AudioInterface(None)
+        stopped = False
+        def decoderThread():
+            try:
+                for packet in decodeBlurt(qs):
+                    q.put(packet)
+            except Exception as e:
+                print('decoderThread exception')
+                traceback.print_exc()
+            finally:
+                global stopped
+                stopped = True
+        _thread.start_new_thread(decoderThread, ())
+        try:
+            ap.record(qs, Fs)
+            print('Listening...')
+            while not stopped:
+                try:
+                    payload, lsnr = q.get(timeout=.01)
+                    if showVU:
+                        sys.stdout.write('\r\x1b[2K')
+                    print(payload, lsnr)
+                except queue.Empty:
+                    pass
+                if showVU:
+                    vu = 80 + 10 * np.log10(getattr(qs, 'vu', 1e-10))
+                    sys.stdout.write('\r\x1b[2K' + '.' * int(max(0, vu)))
+                    sys.stdout.flush()
+        except KeyboardInterrupt:
             pass
         if showVU:
-            vu = 80 + 10 * np.log10(getattr(qs, 'vu', 1e-10))
-            sys.stdout.write('\r\x1b[2K' + '.' * int(max(0, vu)))
-            sys.stdout.flush()
-except KeyboardInterrupt:
-    pass
-
-if showVU:
-    sys.stdout.write('\r\x1b[2K')
-print('Stopping...')
-ap.stop()
+            sys.stdout.write('\r\x1b[2K')
+        print('Stopping...')
+        ap.stop()
