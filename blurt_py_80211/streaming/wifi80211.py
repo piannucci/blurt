@@ -143,16 +143,15 @@ class Rate:
         return output
     def demap(self, y, dispersion):
         n = self.Nbpsc
-        squared_distance = np.abs(self.symbols - y[:,None])**2
+        squared_distance = np.abs(self.symbols - y.flatten()[:,None])**2
         ll = -np.log(np.pi * dispersion) - squared_distance / dispersion
         ll -= np.logaddexp.reduce(ll, 1)[:,None]
         j = np.arange(1<<n)
         llr = np.zeros((y.size, n), int)
-        logsumexp = np.logaddexp.reduce
         for i in range(n):
-            llr[:,i] = 10 * (logsumexp(ll[:,0 != (j & (1<<i))], 1) - \
-                             logsumexp(ll[:,0 == (j & (1<<i))], 1))
-        return np.clip(llr, -1e4, 1e4).flatten()
+            llr[:,i] = 10 * (np.logaddexp.reduce(ll[:,0 != (j & (1<<i))], 1) - \
+                             np.logaddexp.reduce(ll[:,0 == (j & (1<<i))], 1))
+        return np.clip(llr, -1e4, 1e4)
 
 rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)),
          0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
@@ -165,7 +164,6 @@ N_sts_period = nfft // 4
 N_sts_samples = ts_reps * (ncp + nfft)
 N_sts_reps = N_sts_samples // N_sts_period
 N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
-N_symbol_samples = nfft+ncp
 
 def interleave(input, Ncbps, Nbpsc, reverse=False):
     s = max(Nbpsc//2, 1)
@@ -214,7 +212,8 @@ def peakDetect(source, l):
 def estimate_cfo(y, overlap, span):
     return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
 
-remove_cfo = lambda y, k, theta: y * np.exp(-1j*theta*np.r_[k:k+y.size])
+def remove_cfo(y, k, theta):
+    return y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
 def train(y):
     i = 0
@@ -228,8 +227,8 @@ def train(y):
         S_Y = (np.abs(lts)**2).mean(0)
         G = Y.conj()*lts_freq / S_Y
         snr = 1./(G*lts - lts_freq).var()
-        return G, snr, i + nfft*ts_reps
-    G, snr, i = max([wienerFilter(i+offset) for offset in range(-8, 8)], key=lambda r:r[1])
+        return snr, i + nfft*ts_reps, G
+    snr, i, G = max(map(wienerFilter, range(i-8, i+8)))
     var_input = y.var()
     var_n = var_input / (snr * Nsc_used / Nsc + 1)
     var_x = var_input - var_n
@@ -250,10 +249,10 @@ def decodeOFDM(syms, i, training_data):
     for j, y in enumerate(syms):
         sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo)) * G
         i += nfft+ncp
-        pilot = np.sum(sym[pilotSubcarriers] * (1.-2.*scrambler_y[0x7F,j%127]) * pilotTemplate)
+        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * (1.-2.*scrambler_y[0x7F,j%127])
         re,im,theta = x[:,0]
         c, s = np.cos(theta), np.sin(theta)
-        F = np.array([[c, -s, -s*re - c*im], [s,  c,  c*re - s*im], [0,  0,  1]])
+        F = np.array([[c, -s, -s*re - c*im], [s, c, c*re - s*im], [0, 0, 1]])
         x[0,0] = c*re - s*im
         x[1,0] = c*im + s*re
         P = F.dot(P).dot(F.T) + Q
@@ -262,8 +261,7 @@ def decodeOFDM(syms, i, training_data):
         x += K.dot(np.array([[pilot.real], [pilot.imag]]) - x[:2,:])
         P -= K.dot(P[:2,:])
         u = x[0,0] - x[1,0]*1j
-        u /= np.abs(u)
-        yield sym[dataSubcarriers] * u
+        yield sym[dataSubcarriers] * (u/abs(u))
 
 class StreamIndexer(object):
     def __init__(self, source, bufferSize=96000*10):
@@ -343,7 +341,7 @@ def decodeBlurt(source):
         c.shrink(i)
         training_data, training_advance = train(c[i:i+N_training_samples])
         i += training_advance
-        syms = (c[i+j*N_symbol_samples:i+(j+1)*N_symbol_samples] for j in itertools.count())
+        syms = (c[i+j*(nfft+ncp):i+(j+1)*(nfft+ncp)] for j in itertools.count())
         syms = decodeOFDM(syms, training_advance, training_data)
         lsig = next(syms)
         lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
@@ -361,8 +359,8 @@ def decodeBlurt(source):
         length_symbols = int((length_coded_bits+Ncbps-1) // Ncbps)
         plcp_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
         dispersion = (lsig-(plcp_coded_bits*2.-1.)).var()
-        demapped_bits = (rate.demap(s, dispersion) for s in syms)
-        demapped_bits = np.array(list(itertools.islice(demapped_bits, length_symbols)))
+        syms = np.array(list(itertools.islice(syms, length_symbols)))
+        demapped_bits = rate.demap(syms, dispersion).reshape(-1, Ncbps)
         deinterleaved_bits = interleave(demapped_bits, Ncbps, rate.Nbpsc, True)
         llr = rate.depuncture(deinterleaved_bits)[:length_coded_bits]
         output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
@@ -406,9 +404,11 @@ def encodeBlurt(source):
         symbols = np.zeros((subcarriers.shape[0],nfft), complex)
         symbols[:,dataSubcarriers] = subcarriers
         symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
-        sts_time = np.tile(np.fft.ifft(sts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
-        lts_time = np.tile(np.fft.ifft(lts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
-        symbols  = np.tile(np.fft.ifft(symbols ), (1,(ncp        +nfft-1)//nfft + 1       + 1))[:,-ncp        %nfft:-nfft+1]
+        ts_tile_shape = (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1
+        symbols_tile_shape = (1, (ncp+nfft-1)//nfft + 1 + 1)
+        sts_time = np.tile(np.fft.ifft(sts_freq), ts_tile_shape)[-ncp*ts_reps%nfft:-nfft+1]
+        lts_time = np.tile(np.fft.ifft(lts_freq), ts_tile_shape)[-ncp*ts_reps%nfft:-nfft+1]
+        symbols  = np.tile(np.fft.ifft(symbols ), symbols_tile_shape)[:,-ncp%nfft:-nfft+1]
         # temporal smoothing
         subsequences = [sts_time, lts_time] + list(symbols)
         output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, complex)
@@ -472,7 +472,6 @@ if __name__ == '__main__':
         ap = audio.AudioInterface(None)
         qs = QueueStream()
         q = queue.Queue(packetQueueDepth)
-        stopped = False
         def decoderThread():
             try:
                 for packet in decodeBlurt(qs):
@@ -480,12 +479,11 @@ if __name__ == '__main__':
             except Exception as e:
                 print('decoderThread exception')
                 traceback.print_exc()
-            global stopped
-            stopped = True
-        threading.Thread(target=decoderThread, daemon=True).start()
+        t = threading.Thread(target=decoderThread, daemon=True)
+        t.start()
         try:
             ap.record(qs, Fs)
-            while not stopped:
+            while t.is_alive():
                 try:
                     payload, lsnr = q.get(timeout=.01)
                     sys.stdout.write('\r\x1b[2K')
