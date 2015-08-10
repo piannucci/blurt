@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import sys, time, traceback, numpy as np, weave, collections, itertools, queue, _thread
+import numpy as np, weave, itertools, queue
 import iir, audio
 
 ############################ Parameters ############################
@@ -8,23 +8,26 @@ Fs, Fc, upsample_factor = 96e3, 20e3, 32
 
 mtu = 150
 
-showVU = True
 audioInputFrameSize = 2048
 audioInputQueueLength = .33 # seconds
 packetQueueDepth = 64
 
 nfft = 64
-ncp = 64 # 16
-sts_freq = np.zeros(64, np.complex128)
-sts_freq.put([4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4], (13./6.)**.5 * (1+1j) * np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]))
-lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1, 1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-                     0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
-ts_reps = 6 # 6
+ncp = 16
+sts_freq = np.zeros(64, complex)
+sts_freq[[4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4]] = \
+    np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]) * (13./6.)**.5 * (1+1j)
+lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
+                     1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
+                     0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1,
+                     1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
+ts_reps = 2
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
 
 stereoDelay = .005
+preemphasisOrder = 13
 
 ############################ Scrambler ############################
 
@@ -37,16 +40,15 @@ for i in range(127):
 ############################ CRC ############################
 
 def CRC(x):
-    a = np.r_[np.r_[np.zeros(x.size, int), np.ones(32, int)] ^
+    a = np.r_[np.r_[np.zeros(x.size, int), np.ones(32, int)] ^ \
               np.r_[np.zeros(32, int), x[::-1]], np.zeros(-x.size%16, int)]
     a = (a.reshape(-1, 16) << np.arange(16)).sum(1)[::-1]
-    code = """
+    return weave.inline("""
     uint32_t r = 0, A=a.extent(blitz::firstDim);
     for (int i=0; i<A; i++)
         r = (r << 16) ^ a(i) ^ lut(r >> 16);
     return_val = r;
-    """
-    return weave.inline(code, ['a', 'lut'], type_converters=weave.converters.blitz)
+    """, ['a','lut'], type_converters=weave.converters.blitz)
 
 lut = np.arange(1<<16, dtype=np.uint64) << 32
 for i in range(47,31,-1):
@@ -71,22 +73,22 @@ output_map_2_soft = output_map_2.astype(int) * 2 - 1
 
 def encode(y):
     output = np.empty(y.size*2, np.uint8)
-    code = """
+    weave.inline("""
     int sh = 0, N = y.extent(blitz::firstDim);
     for (int i=0; i<N; i++) {
         sh = (sh>>1) ^ ((int)y(i) << 6);
         output(2*i+0) = output_map_1(sh);
         output(2*i+1) = output_map_2(sh);
     }
-    """
-    weave.inline(code, ['y','output','output_map_1','output_map_2'], type_converters=weave.converters.blitz)
-    return output.flatten()
+    """, ['y','output','output_map_1','output_map_2'],
+         type_converters=weave.converters.blitz)
+    return output
 
 def decode(llr):
     N = llr.size//2
     x = llr[0:2*N:2,None]*output_map_1_soft + llr[1:2*N:2,None]*output_map_2_soft
     msg = np.empty(N, np.uint8)
-    code = """
+    weave.inline("""
     const int M = 128;
     int64_t *cost = new int64_t [M*2];
     int64_t *scores = new int64_t [M];
@@ -113,8 +115,8 @@ def decode(llr):
     }
     delete [] cost;
     delete [] scores;
-    """
-    weave.inline(code, ['N','state_inv_map','x','state_inv_map_tag','msg'], type_converters=weave.converters.blitz)
+    """, ['N','state_inv_map','x','state_inv_map_tag','msg'],
+         type_converters=weave.converters.blitz)
     return msg
 
 ############################ Rates ############################
@@ -131,10 +133,12 @@ class Rate:
             grayRevCode ^= grayRevCode >> 2
             symbols = (2*grayRevCode+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
             self.symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
-        self.puncturingMatrix = np.bool_({(1,2):[1,1], (2,3):[1,1,1,0], (3,4):[1,1,1,0,0,1], (5,6):[1,1,1,0,0,1,1,0,0,1]}[ratio])
+        self.puncturingMatrix = np.bool_({(1,2):[1,1], (2,3):[1,1,1,0], (3,4):[1,1,1,0,0,1],
+                                          (5,6):[1,1,1,0,0,1,1,0,0,1]}[ratio])
         self.ratio = ratio
     def depuncture(self, y):
-        output = np.zeros((y.size + self.ratio[1]-1) // self.ratio[1] * self.ratio[0] * 2, y.dtype)
+        output_size = (y.size + self.ratio[1]-1) // self.ratio[1] * self.ratio[0] * 2
+        output = np.zeros(output_size, y.dtype)
         output[np.resize(self.puncturingMatrix, output.size)] = y
         return output
     def demap(self, y, dispersion):
@@ -146,10 +150,12 @@ class Rate:
         llr = np.zeros((y.size, n), int)
         logsumexp = np.logaddexp.reduce
         for i in range(n):
-            llr[:,i] = 10 * (logsumexp(ll[:,0 != (j & (1<<i))], 1) - logsumexp(ll[:,0 == (j & (1<<i))], 1))
+            llr[:,i] = 10 * (logsumexp(ll[:,0 != (j & (1<<i))], 1) - \
+                             logsumexp(ll[:,0 == (j & (1<<i))], 1))
         return np.clip(llr, -1e4, 1e4).flatten()
 
-rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)), 0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
+rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)),
+         0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
 
 ############################ OFDM ############################
 
@@ -199,21 +205,23 @@ def peakDetect(source, l):
             continue
         else:
             y_hist = y[count_consumed:]
-            yield from (np.lib.stride_tricks.as_strided(y, (2*l+1,count_needed-2*l), (y.strides[0],)*2).argmax(0) == l).nonzero()[0] + i
+            stripes_shape = (2*l+1, count_needed-2*l)
+            stripes_strides = (y.strides[0],)*2
+            stripes = np.lib.stride_tricks.as_strided(y, stripes_shape, stripes_strides)
+            yield from (stripes.argmax(0) == l).nonzero()[0] + i
             i += count_consumed
 
-estimate_cfo = lambda arr, overlap, span: np.angle((arr[:-overlap].conj()*arr[overlap:]).sum())/span
-TrainingData = collections.namedtuple('TrainingData', ['G', 'uncertainty', 'var_n', 'theta'])
-# y is a slice of the input stream
-# k is the index of the first sample in y
-# theta is the CFO in radians/sample
+def estimate_cfo(y, overlap, span):
+    return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
+
 remove_cfo = lambda y, k, theta: y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
 def train(y):
     i = 0
     theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
     i += N_sts_samples + ncp*ts_reps
-    theta += estimate_cfo(np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1) * (lts_freq != 0), 1, nfft)
+    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
+    theta += estimate_cfo(lts * (lts_freq != 0), 1, nfft)
     def wienerFilter(i):
         lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
         Y = lts.mean(0)
@@ -221,25 +229,28 @@ def train(y):
         G = Y.conj()*lts_freq / S_Y
         snr = 1./(G*lts - lts_freq).var()
         return G, snr, i + nfft*ts_reps
-    G, snr, i = max([wienerFilter(i+offset) for offset in np.arange(-8, 8)], key=lambda r:r[1])
+    G, snr, i = max([wienerFilter(i+offset) for offset in range(-8, 8)], key=lambda r:r[1])
     var_input = y.var()
     var_n = var_input / (snr * Nsc_used / Nsc + 1)
     var_x = var_input - var_n
     var_y = 2*var_n*var_x + var_n**2
     uncertainty = np.arctan(var_y**.5 / var_x) / nfft**.5
     var_ni = var_x/Nsc_used/snr
-    return TrainingData(G, uncertainty, var_ni, theta), i, 10*np.log10(snr)
+    return (G, uncertainty, var_ni, theta), i
 
 def decodeOFDM(syms, i, training_data):
-    pilotPolarity = (1. - 2.*x for x in itertools.cycle(scrambler_y[0x7F]))
-    sigma_noise = 4*training_data.var_n*.5
-    sigma = sigma_noise + 4*np.sin(training_data.uncertainty)**2
-    P, x, R = np.diag([sigma, sigma, training_data.uncertainty**2]), np.array([[4.,0.,0.]]).T, np.diag([sigma_noise, sigma_noise])
+    G, uncertainty, var_ni, theta_cfo = training_data
+    Np = pilotSubcarriers.size
+    sigma_noise = Np*var_ni*.5
+    sigma = sigma_noise + Np*np.sin(uncertainty)**2
+    P = np.diag([sigma, sigma, uncertainty**2])
+    x = Np * np.array([[1.,0.,0.]]).T
+    R = np.diag([sigma_noise, sigma_noise])
     Q = P * 0.1
-    for y in syms:
-        sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, training_data.theta)) * training_data.G
+    for j, y in enumerate(syms):
+        sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo)) * G
         i += nfft+ncp
-        pilot = np.sum(sym[pilotSubcarriers] * next(pilotPolarity) * pilotTemplate)
+        pilot = np.sum(sym[pilotSubcarriers] * (1.-2.*scrambler_y[0x7F,j%127]) * pilotTemplate)
         re,im,theta = x[:,0]
         c, s = np.cos(theta), np.sin(theta)
         F = np.array([[c, -s, -s*re - c*im], [s,  c,  c*re - s*im], [0,  0,  1]])
@@ -316,9 +327,9 @@ class StreamIndexer(object):
 def downconvert(source):
     i = 0
     lp = iir.lowpass(.45/upsample_factor, order=6)
-    s = -1j*2*np.pi*Fc/Fs
     for y in source:
-        yield lp(y * np.exp(s * np.arange(i,i+y.size)))[-i%upsample_factor::upsample_factor]
+        smoothed = lp(y * np.exp(-1j*2*np.pi*Fc/Fs * np.r_[i:i+y.size]))
+        yield smoothed[-i%upsample_factor::upsample_factor]
         i += y.size
 
 def decodeBlurt(source):
@@ -330,46 +341,47 @@ def decodeBlurt(source):
         if i < j:
             continue
         c.shrink(i)
-        try:
-            training_data, training_advance, lsnr = train(c[i:i+N_training_samples])
-            i += training_advance
-            syms = (c[i+j*N_symbol_samples:i+(j+1)*N_symbol_samples] for j in itertools.count())
-            syms = decodeOFDM(syms, training_advance, training_data)
-            lsig = next(syms)
-            lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
-            if not int(lsig_bits.sum()) & 1 == 0:
-                continue
-            lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
-            if not lsig_bits & 0xF in rates:
-                continue
-            rate = rates[lsig_bits & 0xF]
-            length_octets = (lsig_bits >> 5) & 0xFFF
-            if length_octets > mtu:
-                continue
-            length_coded_bits = (length_octets*8 + 16+6)*2
-            Ncbps = Nsc * rate.Nbpsc
-            length_symbols = (length_coded_bits+Ncbps-1) // Ncbps
-            plcp_coded_bits = interleave(encode(np.r_[(lsig_bits >> np.arange(18)) & 1, 0,0,0,0,0,0]), Nsc, 1).astype(int)
-            dispersion = (lsig-(plcp_coded_bits*2-1)).var()
-            demapped_bits = np.array([rate.demap(next(syms), dispersion) for _ in range(length_symbols)])
-            llr = rate.depuncture(interleave(demapped_bits, Ncbps, rate.Nbpsc, True))[:length_coded_bits]
-            output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
-            if not CRC(output_bits) == 0xc704dd7b:
-                continue
-            j = i + (nfft+ncp)*(length_symbols+1)
-            yield (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1).astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
-        except Exception as e:
-            traceback.print_exc()
+        training_data, training_advance = train(c[i:i+N_training_samples])
+        i += training_advance
+        syms = (c[i+j*N_symbol_samples:i+(j+1)*N_symbol_samples] for j in itertools.count())
+        syms = decodeOFDM(syms, training_advance, training_data)
+        lsig = next(syms)
+        lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
+        if not int(lsig_bits.sum()) & 1 == 0:
+            continue
+        lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
+        if not lsig_bits & 0xF in rates:
+            continue
+        rate = rates[lsig_bits & 0xF]
+        length_octets = (lsig_bits >> 5) & 0xFFF
+        if length_octets > mtu:
+            continue
+        length_coded_bits = (length_octets*8 + 16+6)*2
+        Ncbps = Nsc * rate.Nbpsc
+        length_symbols = int((length_coded_bits+Ncbps-1) // Ncbps)
+        plcp_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
+        dispersion = (lsig-(plcp_coded_bits*2.-1.)).var()
+        demapped_bits = (rate.demap(s, dispersion) for s in syms)
+        demapped_bits = np.array(list(itertools.islice(demapped_bits, length_symbols)))
+        deinterleaved_bits = interleave(demapped_bits, Ncbps, rate.Nbpsc, True)
+        llr = rate.depuncture(deinterleaved_bits)[:length_coded_bits]
+        output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
+        if not CRC(output_bits) == 0xc704dd7b:
+            continue
+        j = i + (nfft+ncp)*(length_symbols+1)
+        output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
+        yield output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
 
 def subcarriersFromBits(bits, rate, scramblerState):
     Ncbps = Nsc * rate.Nbpsc
     Nbps = Ncbps * rate.ratio[0] // rate.ratio[1]
     pad_bits = 6 + -(bits.size + 6) % Nbps
-    scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ np.resize(scrambler_y[scramblerState], bits.size + pad_bits)
+    scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ \
+                np.resize(scrambler_y[scramblerState], bits.size + pad_bits)
     scrambled[bits.size:bits.size+6] = 0
     punctured = encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
     interleaved = interleave(punctured.reshape(-1, Ncbps), Nsc * rate.Nbpsc, rate.Nbpsc)
-    grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)[None,:]).sum(1)
+    grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
     return rate.symbols[grouped].reshape(-1, Nsc)
 
 def encodeBlurt(source):
@@ -377,26 +389,29 @@ def encodeBlurt(source):
     lp1 = iir.lowpass(cutoff/upsample_factor, order=6, method='Ch', ripple=-.021)
     lp2 = lp1.copy()
     baseRate = rates[0xb]
+    k = 0
     for octets in source:
         # prepare header and payload bits
         rateEncoding = 0xb
         rate = rates[rateEncoding]
         data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
-        data_bits = np.r_[np.zeros(16, int), data_bits, (~CRC(data_bits) >> np.arange(32)[::-1]) & 1]
+        data_bits = np.r_[np.zeros(16, int), data_bits,
+                          (~CRC(data_bits) >> np.arange(32)[::-1]) & 1]
         plcp_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
         plcp_bits[-1] = plcp_bits.sum() & 1
         # OFDM modulation
-        subcarriers = np.vstack((subcarriersFromBits(plcp_bits, baseRate, 0), subcarriersFromBits(data_bits, rate, 0x5d)))
-        pilotPolarity = (1. - 2.*x for x in itertools.cycle(scrambler_y[0x7F]))
+        subcarriers = np.vstack((subcarriersFromBits(plcp_bits, baseRate, 0   ),
+                                 subcarriersFromBits(data_bits, rate,     0x5d)))
+        pilotPolarity = np.resize(scrambler_y[0x7F], subcarriers.shape[0])
         symbols = np.zeros((subcarriers.shape[0],nfft), complex)
         symbols[:,dataSubcarriers] = subcarriers
-        symbols[:,pilotSubcarriers] = pilotTemplate * np.fromiter(pilotPolarity, dtype=float, count=subcarriers.shape[0])[:,None]
+        symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
         sts_time = np.tile(np.fft.ifft(sts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
         lts_time = np.tile(np.fft.ifft(lts_freq),    (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1 )[  -ncp*ts_reps%nfft:-nfft+1]
         symbols  = np.tile(np.fft.ifft(symbols ), (1,(ncp        +nfft-1)//nfft + 1       + 1))[:,-ncp        %nfft:-nfft+1]
         # temporal smoothing
         subsequences = [sts_time, lts_time] + list(symbols)
-        output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, np.complex)
+        output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, complex)
         i = 0
         for x in subsequences:
             j = i + len(x)-1
@@ -404,23 +419,28 @@ def encodeBlurt(source):
             output[i+1:j] += x[1:-1]
             output[j] += .5*x[-1]
             i = j
-        output = np.vstack((output, np.zeros((upsample_factor-1, output.size), output.dtype))).T.flatten()*upsample_factor
-        output = lp2(lp1(output))
+        output = np.vstack((output, np.zeros((upsample_factor-1, output.size), output.dtype)))
+        output = output.T.flatten()*upsample_factor
+        output = lp2(lp1(np.r_[np.zeros(200), output, np.zeros(200)]))
         # modulation and pre-emphasis
-        output = (output * np.exp(1j * 2 * np.pi * np.arange(output.size) * Fc / Fs)).real
-        for i in range(13):
+        output = (output * np.exp(1j*2*np.pi*Fc/Fs * np.r_[k:k+output.size])).real
+        k += output.size
+        for i in range(preemphasisOrder):
             output = np.diff(np.r_[output,0])
-        output *= abs(np.exp(1j*2*np.pi*Fc/Fs)-1)**-13
+        output *= abs(np.exp(1j*2*np.pi*Fc/Fs)-1)**-preemphasisOrder
         # stereo beamforming reduction
-        yield np.vstack((np.r_[np.zeros(stereoDelay*Fs), output], np.r_[output, np.zeros(stereoDelay*Fs)])).T
+        delay = np.zeros(stereoDelay*Fs)
+        yield np.vstack((np.r_[delay, output], np.r_[output, delay])).T
 
 ############################ Audio ############################
 
 class QueueStream(audio.stream.StreamArray):
     def __init__(self):
         super().__init__()
-        self.in_queue = queue.Queue(int(np.ceil(audioInputQueueLength * Fs / audioInputFrameSize)))
+        self.in_queue = queue.Queue(int(np.ceil(audioInputQueueLength * Fs /
+                                                audioInputFrameSize)))
         self.inBufSize = audioInputFrameSize
+        self.vu = 1e-10
     def consume(self, sequence):
         try:
             self.in_queue.put_nowait(sequence)
@@ -431,10 +451,7 @@ class QueueStream(audio.stream.StreamArray):
         self.vu = (sequence**2).max()
     def __iter__(self):
         while True:
-            try:
-                yield self.in_queue.get()
-            except:
-                pass
+            yield self.in_queue.get()
 
 class IteratorStream(audio.stream.ThreadedStream):
     def __init__(self, source):
@@ -444,23 +461,17 @@ class IteratorStream(audio.stream.ThreadedStream):
         return next(self.source)
 
 if __name__ == '__main__':
-    if sys.argv[1] == '--tx':
-        encoder = encodeBlurt(np.r_[ord('A') + np.random.random_integers(0,25,26), np.fromstring('%06d' % i, np.uint8)] for i in itertools.count())
+    import sys, time, traceback, threading
+    if len(sys.argv) > 1 and sys.argv[1] == '--tx':
+        def packets():
+            for i in itertools.count():
+                yield np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
+                            np.fromstring('%06d' % i, np.uint8)]
+        audio.play(IteratorStream(encodeBlurt(packets())), Fs)
+    elif len(sys.argv) > 1 and sys.argv[1] == '--rx':
         ap = audio.AudioInterface(None)
-        stopped = False
-        try:
-            ap.play(IteratorStream(encoder), Fs)
-            print('Transmitting...')
-            while not stopped:
-                time.sleep(.1)
-        except KeyboardInterrupt:
-            pass
-        print('Stopping...')
-        ap.stop()
-    elif sys.argv[1] == '--rx':
         qs = QueueStream()
         q = queue.Queue(packetQueueDepth)
-        ap = audio.AudioInterface(None)
         stopped = False
         def decoderThread():
             try:
@@ -469,28 +480,21 @@ if __name__ == '__main__':
             except Exception as e:
                 print('decoderThread exception')
                 traceback.print_exc()
-            finally:
-                global stopped
-                stopped = True
-        _thread.start_new_thread(decoderThread, ())
+            global stopped
+            stopped = True
+        threading.Thread(target=decoderThread, daemon=True).start()
         try:
             ap.record(qs, Fs)
-            print('Listening...')
             while not stopped:
                 try:
                     payload, lsnr = q.get(timeout=.01)
-                    if showVU:
-                        sys.stdout.write('\r\x1b[2K')
+                    sys.stdout.write('\r\x1b[2K')
                     print(payload, lsnr)
                 except queue.Empty:
                     pass
-                if showVU:
-                    vu = 80 + 10 * np.log10(getattr(qs, 'vu', 1e-10))
-                    sys.stdout.write('\r\x1b[2K' + '.' * int(max(0, vu)))
-                    sys.stdout.flush()
+                sys.stdout.write('\r\x1b[2K' + '.' * int(max(0, 80 + 10*np.log10(qs.vu))))
+                sys.stdout.flush()
         except KeyboardInterrupt:
             pass
-        if showVU:
-            sys.stdout.write('\r\x1b[2K')
-        print('Stopping...')
+        sys.stdout.write('\r\x1b[2K')
         ap.stop()
