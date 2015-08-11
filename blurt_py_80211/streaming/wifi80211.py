@@ -1,15 +1,20 @@
 #!/usr/bin/env python
-import numpy as np, weave, itertools, queue
-import iir, audio
+import sys
+import numpy as np
+import weave
+import itertools
+import queue
+import iir
+import audio
 
 ############################ Parameters ############################
 
-Fs, Fc, upsample_factor = 96e3, 20e3, 32
-
 mtu = 150
+Fs, Fc, upsample_factor = 96e3, 20e3, 32
+stereoDelay = .005
+preemphasisOrder = 13
 
 audioInputFrameSize = 2048
-audioInputQueueLength = .33 # seconds
 packetQueueDepth = 64
 
 nfft = 64
@@ -26,16 +31,13 @@ dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
 
-stereoDelay = .005
-preemphasisOrder = 13
-
 ############################ Scrambler ############################
 
-scrambler_y = np.zeros((128,127), np.uint8)
+scrambler = np.zeros((128,127), np.uint8)
 s = np.arange(128, dtype=np.uint8)
 for i in range(127):
     s = np.uint8((s << 1) ^ (1 & ((s >> 3) ^ (s >> 6))))
-    scrambler_y[:,i] = s & 1
+    scrambler[:,i] = s & 1
 
 ############################ CRC ############################
 
@@ -58,18 +60,10 @@ lut = lut.astype(np.uint32)
 ############################ CC ############################
 
 def mul(a, b):
-    c = 0
-    for i in range(7):
-        c ^= (a * np.array((b>>i)&1, bool)) << i
-    return c
+    return np.bitwise_xor.reduce(a[:,None,None] * (b[:,None] & (1<<np.arange(7))), -1)
 
-states            = np.arange(128, dtype=np.uint8)
-output_map_1      = np.uint8(1 & (mul(109, states) >> 6))
-output_map_2      = np.uint8(1 & (mul( 79, states) >> 6))
-state_inv_map     = ((states << 1) & 127)[:,None] + np.array([0,1])
-state_inv_map_tag = np.tile(states[:,None] >> 6, (1,2))
-output_map_1_soft = output_map_1.astype(int) * 2 - 1
-output_map_2_soft = output_map_2.astype(int) * 2 - 1
+output_map = 1 & (mul(np.array([109, 79]), np.arange(128)) >> 6)
+output_map_soft = output_map * 2 - 1
 
 def encode(y):
     output = np.empty(y.size*2, np.uint8)
@@ -77,28 +71,24 @@ def encode(y):
     int sh = 0, N = y.extent(blitz::firstDim);
     for (int i=0; i<N; i++) {
         sh = (sh>>1) ^ ((int)y(i) << 6);
-        output(2*i+0) = output_map_1(sh);
-        output(2*i+1) = output_map_2(sh);
+        output(2*i+0) = output_map(0,sh);
+        output(2*i+1) = output_map(1,sh);
     }
-    """, ['y','output','output_map_1','output_map_2'],
-         type_converters=weave.converters.blitz)
+    """, ['y','output','output_map'], type_converters=weave.converters.blitz)
     return output
 
 def decode(llr):
     N = llr.size//2
-    x = llr[0:2*N:2,None]*output_map_1_soft + llr[1:2*N:2,None]*output_map_2_soft
+    x = (llr[:N*2].reshape(-1,2,1)*output_map_soft).sum(1)
     msg = np.empty(N, np.uint8)
     weave.inline("""
     const int M = 128;
-    int64_t *cost = new int64_t [M*2];
-    int64_t *scores = new int64_t [M];
+    int64_t cost[M*2], scores[M] = {/* zero-initialized */};
     uint8_t bt[N][M];
-    for (int i=0; i<M; i++)
-        scores[i] = 0;
     for (int k=0; k<N; k++) {
         for (int i=0; i<M; i++) {
-            cost[2*i+0] = scores[state_inv_map(i, 0)] + x(k, i);
-            cost[2*i+1] = scores[state_inv_map(i, 1)] + x(k, i);
+            cost[2*i+0] = scores[((i<<1) & 127) | 0] + x(k, i);
+            cost[2*i+1] = scores[((i<<1) & 127) | 1] + x(k, i);
         }
         for (int i=0; i<M; i++) {
             int a = cost[2*i+0];
@@ -110,13 +100,10 @@ def decode(llr):
     int i = (scores[0] < scores[1]) ? 1 : 0;
     for (int k=N-1; k>=0; k--) {
         int j = bt[k][i];
-        msg(k) = state_inv_map_tag(i,j);
-        i = state_inv_map(i,j);
+        msg(k) = i >> 6;
+        i = ((i<<1)&127) + j;
     }
-    delete [] cost;
-    delete [] scores;
-    """, ['N','state_inv_map','x','state_inv_map_tag','msg'],
-         type_converters=weave.converters.blitz)
+    """, ['N','x','msg'], type_converters=weave.converters.blitz)
     return msg
 
 ############################ Rates ############################
@@ -215,6 +202,14 @@ def estimate_cfo(y, overlap, span):
 def remove_cfo(y, k, theta):
     return y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
+def downconvert(source):
+    i = 0
+    lp = iir.lowpass(.45/upsample_factor, order=6)
+    for y in source:
+        smoothed = lp(y * np.exp(-1j*2*np.pi*Fc/Fs * np.r_[i:i+y.size]))
+        yield smoothed[-i%upsample_factor::upsample_factor]
+        i += y.size
+
 def train(y):
     i = 0
     theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
@@ -249,7 +244,7 @@ def decodeOFDM(syms, i, training_data):
     for j, y in enumerate(syms):
         sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo)) * G
         i += nfft+ncp
-        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * (1.-2.*scrambler_y[0x7F,j%127])
+        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * (1.-2.*scrambler[0x7F,j%127])
         re,im,theta = x[:,0]
         c, s = np.cos(theta), np.sin(theta)
         F = np.array([[c, -s, -s*re - c*im], [s, c, c*re - s*im], [0, 0, 1]])
@@ -322,14 +317,6 @@ class StreamIndexer(object):
             self.grow(sl+1)
             return self.y[sl % self.bufferSize]
 
-def downconvert(source):
-    i = 0
-    lp = iir.lowpass(.45/upsample_factor, order=6)
-    for y in source:
-        smoothed = lp(y * np.exp(-1j*2*np.pi*Fc/Fs * np.r_[i:i+y.size]))
-        yield smoothed[-i%upsample_factor::upsample_factor]
-        i += y.size
-
 def decodeBlurt(source):
     j = 0 # ignore upto cursor
     s1,s2 = itertools.tee(downconvert(source))
@@ -363,7 +350,7 @@ def decodeBlurt(source):
         demapped_bits = rate.demap(syms, dispersion).reshape(-1, Ncbps)
         deinterleaved_bits = interleave(demapped_bits, Ncbps, rate.Nbpsc, True)
         llr = rate.depuncture(deinterleaved_bits)[:length_coded_bits]
-        output_bits = (decode(llr) ^ np.resize(scrambler_y[0x5d], llr.size//2))[16:-6]
+        output_bits = (decode(llr) ^ np.resize(scrambler[0x5d], llr.size//2))[16:-6]
         if not CRC(output_bits) == 0xc704dd7b:
             continue
         j = i + (nfft+ncp)*(length_symbols+1)
@@ -375,7 +362,7 @@ def subcarriersFromBits(bits, rate, scramblerState):
     Nbps = Ncbps * rate.ratio[0] // rate.ratio[1]
     pad_bits = 6 + -(bits.size + 6) % Nbps
     scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ \
-                np.resize(scrambler_y[scramblerState], bits.size + pad_bits)
+                np.resize(scrambler[scramblerState], bits.size + pad_bits)
     scrambled[bits.size:bits.size+6] = 0
     punctured = encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
     interleaved = interleave(punctured.reshape(-1, Ncbps), Nsc * rate.Nbpsc, rate.Nbpsc)
@@ -400,7 +387,7 @@ def encodeBlurt(source):
         # OFDM modulation
         subcarriers = np.vstack((subcarriersFromBits(plcp_bits, baseRate, 0   ),
                                  subcarriersFromBits(data_bits, rate,     0x5d)))
-        pilotPolarity = np.resize(scrambler_y[0x7F], subcarriers.shape[0])
+        pilotPolarity = np.resize(scrambler[0x7F], subcarriers.shape[0])
         symbols = np.zeros((subcarriers.shape[0],nfft), complex)
         symbols[:,dataSubcarriers] = subcarriers
         symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
@@ -434,65 +421,42 @@ def encodeBlurt(source):
 
 ############################ Audio ############################
 
-class QueueStream(audio.stream.StreamArray):
-    def __init__(self):
-        super().__init__()
-        self.in_queue = queue.Queue(int(np.ceil(audioInputQueueLength * Fs /
-                                                audioInputFrameSize)))
-        self.inBufSize = audioInputFrameSize
-        self.vu = 1e-10
-    def consume(self, sequence):
-        try:
-            self.in_queue.put_nowait(sequence)
-        except queue.Full:
-            print('QueueStream overrun')
-        except Exception as e:
-            print('QueueStream exception %s' % repr(e))
-        self.vu = (sequence**2).max()
-    def __iter__(self):
-        while True:
-            yield self.in_queue.get()
-
-class IteratorStream(audio.stream.ThreadedStream):
+class BlurtStream(audio.stream.ThreadedStream):
     def __init__(self, source):
-        super().__init__(channels=2)
-        self.source = source
+        self.source = encodeBlurt(source)
+        self.vu = 1e-10
+        super().__init__(channels=2, in_thread=True)
+        self.inBufSize = audioInputFrameSize
+        self.packet_out_queue = queue.Queue(packetQueueDepth)
+        self.backoff = .05
+    def consume(self, sequence):
+        self.vu = (sequence**2).max()
+        super().consume(sequence)
+    def in_thread_loop(self):
+        for packet in decodeBlurt(iter(self.in_queue.get, np.array([]))):
+            self.packet_out_queue.put(packet)
     def thread_produce(self):
-        return next(self.source)
+        if self.vu > 10**-2.5:
+            return np.zeros((self.backoff * Fs, 2))
+        else:
+            return next(self.source)
 
 if __name__ == '__main__':
-    import sys, time, traceback, threading
-    if len(sys.argv) > 1 and sys.argv[1] == '--tx':
-        def packets():
-            for i in itertools.count():
-                yield np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
-                            np.fromstring('%06d' % i, np.uint8)]
-        audio.play(IteratorStream(encodeBlurt(packets())), Fs)
-    elif len(sys.argv) > 1 and sys.argv[1] == '--rx':
-        ap = audio.AudioInterface(None)
-        qs = QueueStream()
-        q = queue.Queue(packetQueueDepth)
-        def decoderThread():
-            try:
-                for packet in decodeBlurt(qs):
-                    q.put(packet)
-            except Exception as e:
-                print('decoderThread exception')
-                traceback.print_exc()
-        t = threading.Thread(target=decoderThread, daemon=True)
-        t.start()
+    packets = (np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
+                     np.fromstring('%06d' % i, np.uint8)] for i in itertools.count())
+    b = BlurtStream(packets)
+    with audio.AudioInterface() as ap:
+        ap.record(b, Fs)
+        if '--tx' in sys.argv:
+            ap.play(b, Fs)
         try:
-            ap.record(qs, Fs)
-            while t.is_alive():
+            while True:
                 try:
-                    payload, lsnr = q.get(timeout=.01)
-                    sys.stdout.write('\r\x1b[2K')
-                    print(payload, lsnr)
+                    print('\r\x1b[2K%s %s' % b.packet_out_queue.get(timeout=.01))
                 except queue.Empty:
                     pass
-                sys.stdout.write('\r\x1b[2K' + '.' * int(max(0, 80 + 10*np.log10(qs.vu))))
-                sys.stdout.flush()
+                vu = int(max(0, 80 + 10*np.log10(b.vu)))
+                print('\r\x1b[2K' + '.' * vu + ' ' * (100-vu) + ' %3d' % vu, end='')
         except KeyboardInterrupt:
             pass
         sys.stdout.write('\r\x1b[2K')
-        ap.stop()
