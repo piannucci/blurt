@@ -210,14 +210,14 @@ def downconvert(source):
         yield smoothed[-i%upsample_factor::upsample_factor]
         i += y.size
 
-def train(y):
-    i = 0
-    theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
+def train(y, k):
+    i = k
+    theta = estimate_cfo(y[i-k:i-k+N_sts_samples], N_sts_period, N_sts_period)
     i += N_sts_samples + ncp*ts_reps
-    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
+    lts = np.fft.fft(remove_cfo(y[i-k:i-k+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
     theta += estimate_cfo(lts * (lts_freq != 0), 1, nfft)
     def wienerFilter(i):
-        lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
+        lts = np.fft.fft(remove_cfo(y[i-k:i-k+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
         Y = lts.mean(0)
         S_Y = (np.abs(lts)**2).mean(0)
         G = Y.conj()*lts_freq / S_Y
@@ -326,10 +326,10 @@ def decodeBlurt(source):
         if i < j:
             continue
         c.shrink(i)
-        training_data, training_advance = train(c[i:i+N_training_samples])
-        i += training_advance
+        y = c[i:i+N_training_samples]
+        training_data, i = train(y, i)
         syms = (c[i+j*(nfft+ncp):i+(j+1)*(nfft+ncp)] for j in itertools.count())
-        syms = decodeOFDM(syms, training_advance, training_data)
+        syms = decodeOFDM(syms, i, training_data)
         lsig = next(syms)
         lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
         if not int(lsig_bits.sum()) & 1 == 0:
