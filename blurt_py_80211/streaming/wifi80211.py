@@ -4,6 +4,7 @@ import numpy as np
 import weave
 import itertools
 import queue
+import collections
 import iir
 import audio
 
@@ -163,38 +164,47 @@ def interleave(input, Ncbps, Nbpsc, reverse=False):
         p = 16*i - (Ncbps - 1) * (16*i//Ncbps)
     return input[...,p].flatten()
 
-def autocorrelate(source):
-    y_hist = np.zeros(0)
-    for y in source:
-        y = np.r_[y_hist, y]
+class Autocorrelator:
+    def __init__(self):
+        self.y_hist = np.zeros(0)
+        self.results = []
+    def feed(self, y):
+        y = np.r_[self.y_hist, y]
         count_needed = y.size // N_sts_period * N_sts_period
         count_consumed = count_needed - N_sts_reps * N_sts_period
         if count_consumed <= 0:
-            y_hist = y
-            continue
+            self.y_hist = y
         else:
-            y_hist = y[count_consumed:]
+            self.y_hist = y[count_consumed:]
             y = y[:count_needed].reshape(-1, N_sts_period)
             corr_sum = np.abs((y[:-1].conj() * y[1:]).sum(1)).cumsum()
-            yield corr_sum[N_sts_reps-1:] - corr_sum[:-N_sts_reps+1]
+            self.results.append(corr_sum[N_sts_reps-1:] - corr_sum[:-N_sts_reps+1])
+    def __iter__(self):
+        while self.results:
+            yield self.results.pop()
 
-def peakDetect(source, l):
-    y_hist = np.zeros(0)
-    i = l
-    for y in source:
-        y = np.r_[y_hist, y]
+class PeakDetector:
+    def __init__(self, l):
+        self.y_hist = np.zeros(0)
+        self.l = l
+        self.i = l
+        self.results = []
+    def feed(self, y):
+        y = np.r_[self.y_hist, y]
         count_needed = y.size
-        count_consumed = count_needed - 2*l
+        count_consumed = count_needed - 2*self.l
         if count_consumed <= 0:
-            y_hist = y
-            continue
+            self.y_hist = y
         else:
-            y_hist = y[count_consumed:]
-            stripes_shape = (2*l+1, count_needed-2*l)
+            self.y_hist = y[count_consumed:]
+            stripes_shape = (2*self.l+1, count_needed-2*self.l)
             stripes_strides = (y.strides[0],)*2
             stripes = np.lib.stride_tricks.as_strided(y, stripes_shape, stripes_strides)
-            yield from (stripes.argmax(0) == l).nonzero()[0] + i
-            i += count_consumed
+            self.results.extend((stripes.argmax(0) == self.l).nonzero()[0] + self.i)
+            self.i += count_consumed
+    def __iter__(self):
+        while self.results:
+            yield self.results.pop()
 
 def estimate_cfo(y, overlap, span):
     return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
@@ -210,21 +220,21 @@ def downconvert(source):
         yield smoothed[-i%upsample_factor::upsample_factor]
         i += y.size
 
-def train(y, k):
-    i = k
-    theta = estimate_cfo(y[i-k:i-k+N_sts_samples], N_sts_period, N_sts_period)
+def train(y):
+    i = 0
+    theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
     i += N_sts_samples + ncp*ts_reps
-    lts = np.fft.fft(remove_cfo(y[i-k:i-k+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
+    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
     theta += estimate_cfo(lts * (lts_freq != 0), 1, nfft)
     def wienerFilter(i):
-        lts = np.fft.fft(remove_cfo(y[i-k:i-k+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
+        lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
         Y = lts.mean(0)
         S_Y = (np.abs(lts)**2).mean(0)
         G = Y.conj()*lts_freq / S_Y
         snr = 1./(G*lts - lts_freq).var()
         return snr, i + nfft*ts_reps, G
     snr, i, G = max(map(wienerFilter, range(i-8, i+8)))
-    var_input = y.var()
+    var_input = y[:N_training_samples].var()
     var_n = var_input / (snr * Nsc_used / Nsc + 1)
     var_x = var_input - var_n
     var_y = 2*var_n*var_x + var_n**2
@@ -258,104 +268,98 @@ def decodeOFDM(syms, i, training_data):
         u = x[0,0] - x[1,0]*1j
         yield sym[dataSubcarriers] * (u/abs(u))
 
-class StreamIndexer(object):
-    def __init__(self, source, bufferSize=96000*10):
-        self.bufferSize = bufferSize
-        self.source = source
-        y = next(self.source)
-        self.dtype = y.dtype
-        self.y = np.empty(self.bufferSize, self.dtype)
-        self.y[:y.size] = y
-        self.k = 0
-        self.size = y.size
-    def grow(self, i):
-        if i - self.k > self.bufferSize:
-            raise ValueError('stream buffer size limit exceeded')
-        # load indices < i
-        while self.k + self.size < i:
-            y = next(self.source)
-            start = (self.k + self.size) % self.bufferSize
-            stop = start + y.size
-            if stop <= self.bufferSize:
-                self.y[start:stop] = y
+class BlurtDecoder:
+    def __init__(self, i):
+        self.start = i
+        self.j = 0
+        max_coded_bits = ((2 + mtu + 4) * 8 + 6) * 2
+        max_data_symbols = (max_coded_bits+Nsc-1) // Nsc
+        max_samples = N_training_samples + (ncp+nfft) * (1 + max_data_symbols)
+        self.y = np.full(max_samples, np.inf, complex)
+        self.size = 0
+        self.trained = False
+        self.result = None
+    def feed(self, sequence, k):
+        if self.result is not None:
+            return
+        if k < self.start:
+            sequence = sequence[self.start-k:]
+        self.y[self.size:self.size+sequence.size] = sequence[:self.y.size-self.size]
+        self.size += sequence.size
+        if not self.trained:
+            if self.size > N_training_samples:
+                training_data, self.i = train(self.y)
+                syms = self.y[self.i:self.i+(self.y.size-self.i)//(nfft+ncp)*(nfft+ncp)]
+                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp)), self.i, training_data)
+                self.trained = True
             else:
-                self.y[start:] = y[:self.bufferSize-start]
-                self.y[:stop-self.bufferSize] = y[self.bufferSize-start:]
-            self.size += y.size
-    def shrink(self, i):
-        # discard indices < i
-        self.grow(i)
-        delta = max(i-self.k, 0)
-        self.k += delta
-        self.size -= delta
-    def __getitem__(self, sl):
-        if isinstance(sl, slice):
-            start = sl.start
-            if start is None:
-                start = 0
-            if start < self.k:
-                raise IndexError('stream index out of range')
-            stop = sl.stop
-            if stop is None:
-                raise IndexError('stream index out of range')
-            step = sl.step
-            if step is None:
-                step = 1
-            if step < 0:
-                raise ValueError('slice step must be positive')
-            self.grow(stop)
-            size = stop - start
-            start %= self.bufferSize
-            stop = start + size
-            if stop <= self.bufferSize:
-                return self.y[start:stop:step]
+                return
+        j_valid = (self.size - self.i) // (nfft + ncp)
+        if self.j == 0:
+            if j_valid > 0:
+                lsig = next(self.syms)
+                lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
+                if not int(lsig_bits.sum()) & 1 == 0:
+                    self.result = ()
+                    return
+                lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
+                if not lsig_bits & 0xF in rates:
+                    self.result = ()
+                    return
+                self.rate = rates[lsig_bits & 0xF]
+                length_octets = (lsig_bits >> 5) & 0xFFF
+                if length_octets > mtu:
+                    self.result = ()
+                    return
+                self.length_coded_bits = (length_octets*8 + 16+6)*2
+                self.Ncbps = Nsc * self.rate.Nbpsc
+                self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
+                plcp_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
+                self.dispersion = (lsig-(plcp_coded_bits*2.-1.)).var()
+                self.j = 1
             else:
-                return np.r_[self.y[start:], self.y[:stop-self.bufferSize]][::step]
-        else:
-            if sl < self.k:
-                raise IndexError('stream index out of range')
-            self.grow(sl+1)
-            return self.y[sl % self.bufferSize]
-
-def decodeBlurt(source):
-    j = 0 # ignore upto cursor
-    s1,s2 = itertools.tee(downconvert(source))
-    c = StreamIndexer(s2)
-    for k in peakDetect(autocorrelate(s1), 25):
-        i = k * N_sts_period + 16
-        if i < j:
-            continue
-        c.shrink(i)
-        y = c[i:i+N_training_samples]
-        training_data, i = train(y, i)
-        syms = (c[i+j*(nfft+ncp):i+(j+1)*(nfft+ncp)] for j in itertools.count())
-        syms = decodeOFDM(syms, i, training_data)
-        lsig = next(syms)
-        lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
-        if not int(lsig_bits.sum()) & 1 == 0:
-            continue
-        lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
-        if not lsig_bits & 0xF in rates:
-            continue
-        rate = rates[lsig_bits & 0xF]
-        length_octets = (lsig_bits >> 5) & 0xFFF
-        if length_octets > mtu:
-            continue
-        length_coded_bits = (length_octets*8 + 16+6)*2
-        Ncbps = Nsc * rate.Nbpsc
-        length_symbols = int((length_coded_bits+Ncbps-1) // Ncbps)
-        plcp_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
-        dispersion = (lsig-(plcp_coded_bits*2.-1.)).var()
-        syms = np.array(list(itertools.islice(syms, length_symbols)))
-        demapped_bits = rate.demap(syms, dispersion).reshape(-1, Ncbps)
-        deinterleaved_bits = interleave(demapped_bits, Ncbps, rate.Nbpsc, True)
-        llr = rate.depuncture(deinterleaved_bits)[:length_coded_bits]
+                return
+        if j_valid < self.length_symbols + 1:
+            return
+        syms = np.array(list(itertools.islice(self.syms, self.length_symbols)))
+        demapped_bits = self.rate.demap(syms, self.dispersion).reshape(-1, self.Ncbps)
+        deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, True)
+        llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
         output_bits = (decode(llr) ^ np.resize(scrambler[0x5d], llr.size//2))[16:-6]
         if not CRC(output_bits) == 0xc704dd7b:
-            continue
-        j = i + (nfft+ncp)*(length_symbols+1)
+            self.result = ()
+            return
         output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
-        yield output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/dispersion)
+        self.result = output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/self.dispersion)
+
+def decodeBlurt(source):
+    autocorrelator = Autocorrelator()
+    peakDetector = PeakDetector(25)
+    lookback = collections.deque()
+    decoders = []
+    k_current = 0
+    k_lookback = 0
+    for sequence in downconvert(source):
+        autocorrelator.feed(sequence)
+        for y in autocorrelator:
+            peakDetector.feed(y)
+        for peak in peakDetector:
+            d = BlurtDecoder(peak * N_sts_period + 16)
+            k = k_lookback
+            for y in lookback:
+                d.feed(y, k)
+                k += y.size
+            decoders.append(d)
+        lookback.append(sequence)
+        for d in decoders:
+            d.feed(sequence, k_current)
+            if d.result is not None:
+                if d.result:
+                    yield d.result
+                decoders.remove(d)
+        k_current += sequence.size
+        while lookback and k_lookback+lookback[0].size < k_current - 1024:
+            k_lookback += lookback.popleft().size
 
 def subcarriersFromBits(bits, rate, scramblerState):
     Ncbps = Nsc * rate.Nbpsc
@@ -421,6 +425,13 @@ def encodeBlurt(source):
 
 ############################ Audio ############################
 
+def untilNone(fn):
+    while True:
+        x = fn()
+        if x is None:
+            return
+        yield x
+
 class BlurtStream(audio.stream.ThreadedStream):
     def __init__(self, source):
         self.source = encodeBlurt(source)
@@ -433,7 +444,7 @@ class BlurtStream(audio.stream.ThreadedStream):
         self.vu = (sequence**2).max()
         super().consume(sequence)
     def in_thread_loop(self):
-        for packet in decodeBlurt(iter(self.in_queue.get, np.array([]))):
+        for packet in decodeBlurt(untilNone(self.in_queue.get)):
             self.packet_out_queue.put(packet)
     def thread_produce(self):
         if self.vu > 10**-2.5:
