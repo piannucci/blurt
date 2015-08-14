@@ -15,8 +15,7 @@ Fs, Fc, upsample_factor = 96e3, 20e3, 32
 stereoDelay = .005
 preemphasisOrder = 13
 
-audioInputFrameSize = 2048
-packetQueueDepth = 64
+audioFrameSize = 256
 
 nfft = 64
 ncp = 16
@@ -31,6 +30,7 @@ ts_reps = 2
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
+vuThresh = 80
 
 ############################ Scrambler ############################
 
@@ -436,10 +436,12 @@ class BlurtStream(audio.stream.ThreadedStream):
     def __init__(self, source):
         self.source = encodeBlurt(source)
         self.vu = 1e-10
-        super().__init__(channels=2, in_thread=True)
-        self.inBufSize = audioInputFrameSize
-        self.packet_out_queue = queue.Queue(packetQueueDepth)
-        self.backoff = .05
+        self.i = 0
+        self.packet_out_queue = queue.Queue()
+        super().__init__(channels=2, in_thread=True, out_queue_depth=1)
+        self.inBufSize = audioFrameSize
+        self.outBufSize = audioFrameSize
+        self.warnOnUnderrun = True
     def consume(self, sequence):
         self.vu = (sequence**2).max()
         super().consume(sequence)
@@ -447,14 +449,20 @@ class BlurtStream(audio.stream.ThreadedStream):
         for packet in decodeBlurt(untilNone(self.in_queue.get)):
             self.packet_out_queue.put(packet)
     def thread_produce(self):
-        if self.vu > 10**-2.5:
-            return np.zeros((self.backoff * Fs, 2))
+        print('\r\x1b[2K%3d' % self.i)
+        self.i+=1
+        return next(self.source)
+    def immediate_produce(self):
+        if self.vu == 0 or self.vu > 10**(.1 * (vuThresh-80)):
+            return np.zeros((self.outBufSize, 2))
         else:
-            return next(self.source)
+            return self.out_queue.get_nowait()
 
 if __name__ == '__main__':
     packets = (np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
                      np.fromstring('%06d' % i, np.uint8)] for i in itertools.count())
+    # compile all weave inline modules
+    next(decodeBlurt(np.r_[np.zeros(10000), x[:,0], np.zeros(10000)] for x in encodeBlurt([np.fromstring(b'a', np.uint8)])))
     b = BlurtStream(packets)
     with audio.AudioInterface() as ap:
         ap.record(b, Fs)
@@ -463,7 +471,8 @@ if __name__ == '__main__':
         try:
             while True:
                 try:
-                    print('\r\x1b[2K%s %s' % b.packet_out_queue.get(timeout=.01))
+                    p = b.packet_out_queue.get(timeout=.01)
+                    print('\r\x1b[2K   %3d (%10f dB) (%.3f us)' % (int(str(p[0][26:32], 'utf-8'), 10), p[1], (ap.recordingLatency+ap.playbackLatency)*ap.nanosecondsPerAbsoluteTick*1e-3))
                 except queue.Empty:
                     pass
                 vu = int(max(0, 80 + 10*np.log10(b.vu)))
