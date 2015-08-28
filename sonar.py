@@ -1,18 +1,18 @@
+#!/usr/bin/env python
 import audio, numpy as np, pylab as pl, iir, scipy.signal
 outputUID = 'AppleHDAEngineOutput:1B,0,1,1:0'
 externalMicUID = u'AppleUSBAudioEngine:Creative Technology:SB Live! 24-bit External:14100000:2,1'
 internalMicUID = u'AppleHDAEngineInput:1B,0,1,0:1'
 output = [i for i,d in enumerate(audio.devices()) if d['deviceUID'] == outputUID][0]
-externalMic = [i for i,d in enumerate(audio.devices()) if d['deviceUID'] == externalMicUID][0]
-internalMic = [i for i,d in enumerate(audio.devices()) if d['deviceUID'] == internalMicUID][0]
+externalMic = next((i for i,d in enumerate(audio.devices()) if d['deviceUID'] == externalMicUID), None)
+internalMic = next((i for i,d in enumerate(audio.devices()) if d['deviceUID'] == internalMicUID), None)
 Fs=96000
 
 def chirp(f0, f1, length):
     return np.exp(1j*2*np.pi*(np.arange(length)*float(f1-f0)/length + f0).cumsum())
 
 class SonarTransciever(audio.stream.Visualizer):
-    def init(self):
-        self.channels = 2
+    def __init__(self):
         self.Fs = Fs = 96e3
         self.pulse_low = 20e3
         self.pulse_high = 30e3
@@ -27,13 +27,12 @@ class SonarTransciever(audio.stream.Visualizer):
         mono_timing = np.tile(np.r_[1, np.zeros(spacing*2-1)], 3*simultaneous_pulses)
         mono = scipy.signal.fftconvolve(mono_timing, pulse, 'full')[(simultaneous_pulses-1)*spacing*2:simultaneous_pulses*spacing*2]
         self.output = np.vstack((mono, np.roll(mono, spacing))).T
-        self.lpf = iir.lowpass((self.pulse_high-self.pulse_low)/Fs/2, continuous=True, dtype=np.complex128)
+        self.lpf = iir.lowpass((self.pulse_high-self.pulse_low)/Fs/2)
         cs = 1116.44 # feet/sec
         self.columns = int(self.display_duration*Fs) // (spacing*2)
         self.buffer = np.zeros((2, spacing, self.columns*2), np.float32)
         self.window_phase = 0
         self.input_fragment = np.zeros(0, np.complex64)
-        super(SonarTransciever, self).init()
         self.extent = (0, self.display_duration, -spacing*.1/Fs*cs/2, spacing*.9/Fs*cs/2)
         self.ax1 = self.fig.add_subplot(1,2,1)
         self.im1 = self.ax1.imshow(self.buffer[0], vmin=0., vmax=10., extent=self.extent, aspect='auto', interpolation='nearest')
@@ -54,6 +53,7 @@ class SonarTransciever(audio.stream.Visualizer):
         audio.stream.set_foregroundcolor(self.ax2, 'w')
         self.i = 0
         self.phase_locked = None
+        super().__init__(channels=2)
     def thread_produce(self):
         return self.output
     def thread_consume(self, input):
@@ -101,7 +101,7 @@ class SonarTransciever(audio.stream.Visualizer):
                 self.im1.set_data(b[0])
                 self.im2.set_data(b[1])
                 self.draw()
-            except Exception, e:
+            except (Exception,) as e:
                 import traceback
                 traceback.print_exc()
         self.input_fragment = stream[actual_advance:]
@@ -116,7 +116,7 @@ def sonar(recv_only=False):
     reps = 30
     simultaneous_pulses = (pulse_duration+2*spacing-1) // (2*spacing)
     base_chirp = chirp(pulse_low/Fs, pulse_high/Fs, pulse_duration)
-    lpf = iir.lowpass((pulse_high-pulse_low)/Fs/2, continuous=True, dtype=np.complex128)
+    lpf = iir.lowpass((pulse_high-pulse_low)/Fs/2)
     cs = 1116.44 # feet/sec
     extent = (0, reps*spacing*2/Fs, -spacing*.1/Fs*cs/2, spacing*.9/Fs*cs/2)
     if recv_only:
@@ -146,7 +146,7 @@ def sonar(recv_only=False):
     pl.imshow(y[1], extent=extent, aspect='auto', interpolation='nearest')
     pl.grid()
 
-audio.play(SonarTransciever(), Fs)
+audio.play_and_record(SonarTransciever(), Fs)
 
 while True:
     sonar(recv_only=True)
