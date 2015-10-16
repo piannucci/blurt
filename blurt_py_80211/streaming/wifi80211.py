@@ -37,6 +37,7 @@ dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
 vuThresh = 80
+G=None
 
 ############################ Scrambler ############################
 
@@ -294,9 +295,9 @@ class BlurtDecoder:
         self.size += sequence.size
         if not self.trained:
             if self.size > N_training_samples:
-                training_data, self.i = train(self.y)
+                self.training_data, self.i = train(self.y)
                 syms = self.y[self.i:self.i+(self.y.size-self.i)//(nfft+ncp)*(nfft+ncp)]
-                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp)), self.i, training_data)
+                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp)), self.i, self.training_data)
                 self.trained = True
             else:
                 return
@@ -337,6 +338,8 @@ class BlurtDecoder:
             return
         output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
         self.result = output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/self.dispersion)
+        global G
+        G = self.training_data[0]
 
 def decodeBlurt(source, channel):
     autocorrelator = Autocorrelator()
@@ -430,6 +433,22 @@ def encodeBlurt(source, channel):
         # stereo beamforming reduction
         delay = np.zeros(stereoDelay*channel.Fs)
         yield np.vstack((np.r_[delay, output], np.r_[output, delay])).T
+
+def dopplerDecode_baseline(y, d0, d1):
+    # y: samples of periodic signal at [0,64)
+    # [d0, d1+64): range of coordinates of desired samples
+    phaseError = 2*np.pi*(d0+np.arange(nfft)*(d1-d0)/nfft)*upsample_factor*Fc/Fs
+    return np.fft.fft(y * np.exp(-1j*phaseError))
+
+def dopplerDecode(y, d0, d1):
+    # y: samples of periodic signal at [0,64)
+    # [d0, d1+64): range of coordinates of desired samples
+    ramp = np.arange(nfft) / nfft
+    omega = 2*np.pi * (((np.arange(64) + 32) % 64 - 32) / 64)
+    y2 = y * np.exp(-1j*2*np.pi*(d0+np.arange(nfft)*(d1-d0)/nfft)*upsample_factor*Fc/Fs)
+    return np.fft.fft(y2*(1-ramp)) * np.exp(-1j*omega*(d0-d1)*.333) + \
+           np.fft.fft(y2*   ramp ) * np.exp(-1j*omega*(d1-d0)*.333)
+
 
 ############################ Audio ############################
 
@@ -547,7 +566,10 @@ if __name__ == '__main__':
                     if realTunnel:
                         u.write(datagram)
             vu = int(max(0, 80 + 10*np.log10(xcvr.stream.vu)))
-            print(clearLine + '.' * vu + ' ' * (100-vu) + ' %3d' % vu, end='')
+            bar = [' '] * 100
+            bar[:vu] = ['.'] * vu
+            bar[vuThresh] = '|'
+            print(clearLine + ''.join(bar) + ' %3d' % vu, end='')
     except KeyboardInterrupt:
         pass
     print(clearLine, end='')
