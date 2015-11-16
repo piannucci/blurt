@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.4
 import sys
 import os
 import select
@@ -17,7 +17,7 @@ Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 ############################ Parameters ############################
 
 mtu = 150
-_channel = Channel(96e3, 16.5e3, 8)
+_channel = Channel(96e3, 20.0e3, 8) # 16.5e3
 stereoDelay = .005
 preemphasisOrder = 5
 

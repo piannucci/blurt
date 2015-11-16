@@ -31,6 +31,13 @@ class utun:
         if cloexec:
             fcntl.fcntl(self.fd, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.mtu = mtu
+        # From ifconfig.8:
+        ## Basic IPv6 node operation requires a link-local address on each
+        ## interface configured for IPv6.  Normally, such an address is
+        ## automatically configured by the kernel on each interface added to
+        ## the system; this behaviour may be disabled by setting the sysctl MIB
+        ## variable net.inet6.ip6.auto_linklocal to 0.
+        ## If you delete such an address using ifconfig, the kernel may act very odd.  Do this at your own risk.
         # force generation of link-local address and routes
         subprocess.Popen(['ifconfig', self.iface, 'inet6', 'fe80::1/64', 'mtu', str(self.mtu)]).wait()
         subprocess.Popen(['ifconfig', self.iface, 'inet6', 'delete', 'fe80::1']).wait()
