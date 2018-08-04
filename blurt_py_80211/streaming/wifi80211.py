@@ -9,8 +9,36 @@ import itertools
 import queue
 import collections
 import time
-import iir
 import audio
+import scipy.signal
+
+class IIRFilter:
+    def __init__(self, **kwargs):
+        if kwargs.pop('design', False):
+            self.sos = scipy.signal.iirdesign(output='sos', analog=False, **kwargs)
+        elif 'sos' in kwargs:
+            self.sos = kwargs['sos']
+        elif 'tf' in kwargs:
+            self.sos = scipy.signal.tf2sos(*kwargs['tf'])
+        elif 'zpk' in kwargs:
+            self.sos = scipy.signal.zpk2sos(*kwargs['zpk'])
+        else:
+            raise NotImplementedError()
+        self.axis = kwargs.pop('axis', -1)
+        self.dtype = kwargs.pop('dtype', np.complex128)
+        self.shape = list(kwargs.pop('shape', (None,)))
+        self.shape[self.axis] = 2
+        self.reset()
+    def reset(self):
+        self.zi = np.zeros((self.sos.shape[0],) + tuple(self.shape), self.dtype)
+    @staticmethod
+    def lowpass(freq):
+        return IIRFilter(design=True, wp=freq*2, ws=freq*2*1.2, gpass=.021, gstop=30, ftype='butter')
+    def __call__(self, x):
+        y, self.zi = scipy.signal.sosfilt(self.sos, x, axis=self.axis, zi=self.zi)
+        return y
+    def copy(self):
+        return IIRFilter(sos=self.sos, axis=self.axis, dtype=self.dtype, shape=self.shape)
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
@@ -20,6 +48,7 @@ mtu = 150
 _channel = Channel(96e3, 20.0e3, 8) # 16.5e3
 stereoDelay = .005
 preemphasisOrder = 5
+gap = 0 #.2
 
 audioFrameSize = 256
 
@@ -221,7 +250,7 @@ def remove_cfo(y, k, theta):
 
 def downconvert(source, channel):
     i = 0
-    lp = iir.lowpass(.45/channel.upsample_factor, order=6)
+    lp = IIRFilter.lowpass(.45/channel.upsample_factor)
     for y in source:
         smoothed = lp(y * np.exp(-1j*2*np.pi*channel.Fc/channel.Fs * np.r_[i:i+y.size]))
         yield smoothed[-i%channel.upsample_factor::channel.upsample_factor]
@@ -384,7 +413,7 @@ def subcarriersFromBits(bits, rate, scramblerState):
 
 def encodeBlurt(source, channel):
     cutoff = (Nsc_used/2 + .5)/nfft
-    lp1 = iir.lowpass(cutoff/channel.upsample_factor, order=6, method='Ch', ripple=-.021)
+    lp1 = IIRFilter.lowpass(cutoff/channel.upsample_factor)
     lp2 = lp1.copy()
     baseRate = rates[0xb]
     k = 0
@@ -431,32 +460,17 @@ def encodeBlurt(source, channel):
             output = np.diff(np.r_[output,0])
         output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
         # stereo beamforming reduction
-        delay = np.zeros(stereoDelay*channel.Fs)
-        yield np.vstack((np.r_[delay, output], np.r_[output, delay])).T
-
-def dopplerDecode_baseline(y, d0, d1):
-    # y: samples of periodic signal at [0,64)
-    # [d0, d1+64): range of coordinates of desired samples
-    phaseError = 2*np.pi*(d0+np.arange(nfft)*(d1-d0)/nfft)*upsample_factor*Fc/Fs
-    return np.fft.fft(y * np.exp(-1j*phaseError))
-
-def dopplerDecode(y, d0, d1):
-    # y: samples of periodic signal at [0,64)
-    # [d0, d1+64): range of coordinates of desired samples
-    ramp = np.arange(nfft) / nfft
-    omega = 2*np.pi * (((np.arange(64) + 32) % 64 - 32) / 64)
-    y2 = y * np.exp(-1j*2*np.pi*(d0+np.arange(nfft)*(d1-d0)/nfft)*upsample_factor*Fc/Fs)
-    return np.fft.fft(y2*(1-ramp)) * np.exp(-1j*omega*(d0-d1)*.333) + \
-           np.fft.fft(y2*   ramp ) * np.exp(-1j*omega*(d1-d0)*.333)
-
+        delay = np.zeros(int(stereoDelay*channel.Fs))
+        pause = np.zeros(int(gap*channel.Fs))
+        yield np.vstack((np.r_[delay, output, pause], np.r_[output, delay, pause])).T
 
 ############################ Audio ############################
 
-def untilNone(fn):
+def iterUntilIs(fn, sentinel):
     while True:
         x = fn()
-        if x is None:
-            return
+        if x is sentinel:
+            break
         yield x
 
 class BlurtStream(audio.stream.ThreadedStream):
@@ -466,7 +480,7 @@ class BlurtStream(audio.stream.ThreadedStream):
         self.compile(txchannel)
         self.compile(rxchannel)
         self.encoder = encodeBlurt(source, txchannel)
-        self.decoder = decodeBlurt(untilNone(self.in_queue.get), rxchannel)
+        self.decoder = decodeBlurt(iterUntilIs(self.in_queue.get, None), rxchannel)
         self.vu = 1e-10
         self.sink = sink
     def compile(self, channel):
@@ -500,7 +514,7 @@ class BlurtSession(object):
         self.txchannel = txchannel
         self.rxchannel = rxchannel
         self.rate = rate
-        self.stream = BlurtStream(untilNone(self.outqueue.get),
+        self.stream = BlurtStream(iterUntilIs(self.outqueue.get, None),
                                   self.rxPush, txchannel, rxchannel)
         rd, wr = os.pipe()
         self.readpipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
@@ -536,18 +550,22 @@ if __name__ == '__main__':
                 xcvr.write(np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
                                  np.fromstring('%06d' % i, np.uint8)])
         threading.Thread(target=packetSource, daemon=True).start()
-        u = None
+        u1, u2 = None, None
     else:
         import utun
-        u = utun.utun()
-        rlist.append(u)
+        u1 = utun.utun(mtu=mtu)
+        u2 = utun.utun(mtu=mtu)
+        u1.ifconfig('inet6', 'fe80::cafe:beef:1')
+        u2.ifconfig('inet6', 'fe80::cafe:beef:2')
+        rlist.append(u1)
+        rlist.append(u2)
     xcvr.start()
     clearLine = '\r\x1b[2K'
     try:
         while True:
             for fd in select.select(rlist, [], [], .01)[0]:
-                if fd is u:
-                    datagram = u.read()
+                if fd in (u1, u2):
+                    datagram = fd.read()
                     print(clearLine + 'utun -> audio (%d bytes)' % len(datagram))
                     xcvr.write(np.fromstring(datagram, np.uint8))
                 elif fd is xcvr:
@@ -561,10 +579,11 @@ if __name__ == '__main__':
                     ap = xcvr.audioInterface
                     latency_us = (ap.recordingLatency+ap.playbackLatency) * \
                                  ap.nanosecondsPerAbsoluteTick*1e-3
-                    print(clearLine + 'audio -> %s %s(%10f dB) (%.3f us)' % (dst, info,
-                          lsnr, latency_us))
+                    print(clearLine + 'audio -> %s (%d bytes) %s(%10f dB) (%.3f us)'
+                        % (dst, len(datagram), info, lsnr, latency_us))
                     if realTunnel:
-                        u.write(datagram)
+                        u1.write(datagram)
+                        u2.write(datagram)
             vu = int(max(0, 80 + 10*np.log10(xcvr.stream.vu)))
             bar = [' '] * 100
             bar[:vu] = ['.'] * vu

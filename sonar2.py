@@ -1,7 +1,7 @@
 #!/usr/bin/env python
+import audio
 import numpy as np
 import pylab as pl
-import audio
 import sys
 import time
 
@@ -36,7 +36,7 @@ def mls(n=13):
         r = (r>>1) | (np.bitwise_xor.reduce(r >> poly) & 1)<<(n-1)
     return m
 
-class Transciever:
+class SonarTransciever:
     def __init__(self, m):
         self.period = m.size*2
         m = m.astype(np.float32) * 2 - 1
@@ -66,13 +66,12 @@ class Transciever:
 n = 11
 Fs = 96e3
 print('Period: %.1f ms' % (1000*2*((1<<n)-1)/Fs,))
-xcvr = Transciever(mls(n))
+xcvr = SonarTransciever(mls(n))
 ap = audio.AudioInterface()
-ap.play(xcvr, Fs)
-ap.record(xcvr, Fs)
 try:
+    ap.play(xcvr, Fs)
+    ap.record(xcvr, Fs)
     while True:
         time.sleep(1.)
 except KeyboardInterrupt:
     ap.stop()
-

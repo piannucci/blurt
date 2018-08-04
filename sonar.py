@@ -26,7 +26,7 @@ class SonarTransciever(audio.stream.Visualizer):
         mono_timing = np.tile(np.r_[1, np.zeros(spacing*2-1)], 3*simultaneous_pulses)
         mono = scipy.signal.fftconvolve(mono_timing, pulse, 'full')[(simultaneous_pulses-1)*spacing*2:simultaneous_pulses*spacing*2]
         self.output = np.tile(np.vstack((mono, np.roll(mono, spacing))).T, (20,1))
-        self.lpf = iir.lowpass((self.pulse_high-self.pulse_low)/Fs/2)
+        self.lpf = iir.IIRFilter.lowpass((self.pulse_high-self.pulse_low)/2/Fs)
         cs = 1116.44 # feet/sec
         self.columns = int(self.display_duration*Fs) // (spacing*2)
         self.buffer = np.zeros((2, spacing, self.columns*2), np.uint16)
@@ -79,7 +79,8 @@ class SonarTransciever(audio.stream.Visualizer):
                     actual_advance += self.phase_locked
                 y = y[:(n+1)*advance].reshape(n+1,2,self.spacing).transpose(1,0,2)
                 y = np.log10(np.abs(np.diff(y, axis=1))).transpose(0,2,1)[:,::-1]
-                y *= .1 * 65535
+                y *= (y>0)
+                y *= 65536 / y.max()
                 y = np.clip(y, 0, 65536)
                 cols = self.columns
                 phase = self.window_phase
@@ -114,13 +115,13 @@ class SonarTransciever(audio.stream.Visualizer):
         self.im1.set_data(self.cm[b[0]])
         self.im2.set_data(self.cm[b[1]])
 
-xcvr = SonarTransciever()
 Fs = 96e3
+xcvr = SonarTransciever()
 ap = audio.AudioInterface()
 try:
     ap.play(xcvr, Fs)
     ap.record(xcvr, Fs)
     ani = animation.FuncAnimation(xcvr.fig, xcvr.updatefig, interval=10, blit=False)
-    pl.show()
+    pl.show(block=True)
 except KeyboardInterrupt:
     ap.stop()

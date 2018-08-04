@@ -15,17 +15,13 @@ class ctl_info(ctypes.Structure):
     _fields_ = [("ctl_id", ctypes.c_uint32),
                 ("ctl_name", ctypes.c_char * MAX_KCTL_NAME)]
 
-class iovec(ctypes.Structure):
-    _fields_ = [("iov_base", ctypes.c_void_p),
-                ("iov_len", ctypes.c_size_t)]
-
 class utun:
     def __init__(self, nonblock=False, cloexec=True, mtu=150):
         self.fd = socket.socket(PF_SYSTEM, socket.SOCK_DGRAM, SYSPROTO_CONTROL)
         info = ctl_info(0, UTUN_CONTROL_NAME)
         fcntl.ioctl(self.fd, CTLIOCGINFO, info)
         self.fd.connect((info.ctl_id, 0))
-        self.iface = self.fd.getsockopt(SYSPROTO_CONTROL, UTUN_OPT_IFNAME, 256)[:-1]
+        self.iface = self.fd.getsockopt(SYSPROTO_CONTROL, UTUN_OPT_IFNAME, 256)[:-1].decode()
         if nonblock:
             fcntl.fcntl(self.fd, fcntl.F_SETFL, os.O_NONBLOCK)
         if cloexec:
@@ -52,6 +48,8 @@ class utun:
         subprocess.Popen(['route', '-q', 'add', '-inet6', '-net', 'fe80::%%%s/64' % self.iface, '-interface', self.iface]).wait()
         time.sleep(.5)
         self.fileno = self.fd.fileno
+    def ifconfig(self, *args):
+        subprocess.Popen(['ifconfig', self.iface] + list(args)).wait()
     def write(self, buf):
         v6 = (buf[0]>>4) == 6
         protocol = ctypes.c_uint32(libc.htonl((socket.AF_INET, socket.AF_INET6)[v6]))
