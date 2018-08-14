@@ -11,6 +11,8 @@ import collections
 import time
 import audio
 import scipy.signal
+import lowpan
+import binascii
 
 class IIRFilter:
     def __init__(self, **kwargs):
@@ -44,11 +46,11 @@ Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
 ############################ Parameters ############################
 
-mtu = 150
-_channel = Channel(96e3, 20.0e3, 8) # 16.5e3
+mtu = 76 #150
+_channel = Channel(48e3, 17.0e3, 8) # 16.5e3
 stereoDelay = .005
-preemphasisOrder = 5
-gap = 0 #.2
+preemphasisOrder = 0
+gap = .05 #.2
 
 audioFrameSize = 256
 
@@ -484,7 +486,7 @@ class BlurtStream(audio.stream.ThreadedStream):
         self.vu = 1e-10
         self.sink = sink
     def compile(self, channel):
-        encoder = encodeBlurt([np.fromstring(b'a', np.uint8)], channel)
+        encoder = encodeBlurt([np.frombuffer(b'a', np.uint8)], channel)
         decoder = decodeBlurt((np.zeros(10000), next(encoder)[:,0], np.zeros(10000)), channel)
         next(decoder)
     def consume(self, sequence):
@@ -548,17 +550,27 @@ if __name__ == '__main__':
         def packetSource():
             for i in itertools.count():
                 xcvr.write(np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
-                                 np.fromstring('%06d' % i, np.uint8)])
+                                 np.frombuffer(('%06d' % i).encode(), np.uint8)])
         threading.Thread(target=packetSource, daemon=True).start()
         u1, u2 = None, None
     else:
         import utun
-        u1 = utun.utun(mtu=mtu)
-        u2 = utun.utun(mtu=mtu)
-        u1.ifconfig('inet6', 'fe80::cafe:beef:1')
-        u2.ifconfig('inet6', 'fe80::cafe:beef:2')
+        u1 = utun.utun(mtu=1280)
+        u2 = utun.utun(mtu=1280)
+        u1.ifconfig('inet6', 'fe80::caff:fef0:00d1')
+        u2.ifconfig('inet6', 'fe80::caff:fef0:00d2')
         rlist.append(u1)
         rlist.append(u2)
+        class BlurtPDB(lowpan.PDB):
+            def dispatchIPv6PDU(self, p: lowpan.Packet):
+                datagram = p.tail()
+                print('lowpan -> utun (%d bytes)' % (len(datagram),))
+                u1.write(datagram)
+                u2.write(datagram)
+        pdb = BlurtPDB()
+        pdb.ll_mtu = mtu - 12 # room for src, dst link-layer address
+        ll_sa = binascii.unhexlify('0200caf000d1')
+        ll_da = binascii.unhexlify('0200caf000d2')
     xcvr.start()
     clearLine = '\r\x1b[2K'
     try:
@@ -566,12 +578,15 @@ if __name__ == '__main__':
             for fd in select.select(rlist, [], [], .01)[0]:
                 if fd in (u1, u2):
                     datagram = fd.read()
-                    print(clearLine + 'utun -> audio (%d bytes)' % len(datagram))
-                    xcvr.write(np.fromstring(datagram, np.uint8))
+                    print(clearLine + 'utun -> lowpan (%d bytes)' % (len(datagram),))
+                    fragments = pdb.compressIPv6Datagram(lowpan.Packet(ll_sa, ll_da, datagram))
+                    for f in fragments:
+                        print(clearLine + 'lowpan -> audio (%d bytes)' % (12+len(f),))
+                        xcvr.write(np.frombuffer(ll_sa + ll_da + f, np.uint8))
                 elif fd is xcvr:
                     datagram, lsnr = xcvr.read()
                     if realTunnel:
-                        dst = 'utun'
+                        dst = 'lowpan'
                         info = ''
                     else:
                         info = '(seqno %d) ' % int(str(datagram[26:32], 'utf-8'), 10)
@@ -582,8 +597,9 @@ if __name__ == '__main__':
                     print(clearLine + 'audio -> %s (%d bytes) %s(%10f dB) (%.3f us)'
                         % (dst, len(datagram), info, lsnr, latency_us))
                     if realTunnel:
-                        u1.write(datagram)
-                        u2.write(datagram)
+                        sa = datagram[0:6]
+                        da = datagram[6:12]
+                        pdb.dispatchFragmentedPDU(lowpan.Packet(sa, da, datagram[12:]))
             vu = int(max(0, 80 + 10*np.log10(xcvr.stream.vu)))
             bar = [' '] * 100
             bar[:vu] = ['.'] * vu
