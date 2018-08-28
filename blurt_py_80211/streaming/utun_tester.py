@@ -7,8 +7,10 @@ import hashlib
 
 u1 = utun.utun(mtu=1280)
 u2 = utun.utun(mtu=1280)
-u1.ifconfig('inet6', 'fe80::cafe:beef:1')
-u2.ifconfig('inet6', 'fe80::cafe:beef:2')
+ll_sa = binascii.unhexlify('0200c0f000d1')
+ll_da = binascii.unhexlify('0200c0f000d2')
+u1.ifconfig('inet6', lowpan.linkLocalIPv6(ll_sa))
+u2.ifconfig('inet6', lowpan.linkLocalIPv6(ll_da))
 
 class TesterPDB(lowpan.PDB):
     def dispatchIPv6PDU(self, p: lowpan.Packet):
@@ -19,8 +21,6 @@ class TesterPDB(lowpan.PDB):
 
 pdb = TesterPDB()
 pdb.ll_mtu = 76 - 12
-ll_sa = binascii.unhexlify('8c8590843fcc')
-ll_da = binascii.unhexlify('000000000000')
 
 try:
     while True:

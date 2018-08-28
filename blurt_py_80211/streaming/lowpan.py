@@ -3,6 +3,8 @@ from typing import Tuple, NamedTuple, List, Dict, Optional
 import numpy as np
 import binascii
 
+link_local_prefix = b'\xfe\x80\0\0\0\0\0\0'
+
 def matches(a: bytes, mask: bytes, value: bytes):
     return all(aa&mm==vv for aa,mm,vv in zip(a,mask,value))
 
@@ -328,7 +330,7 @@ class PDB:
         # 0-byte options
         if IPv6_SA == bytes(16):
             return 0b100, 0, bytes()
-        if IPv6_SA == b'\xfe\x80\0\0\0\0\0\0' + modEUI64(p.ll_sa):
+        if IPv6_SA == link_local_prefix + modEUI64(p.ll_sa):
             return 0b011, 0, bytes()
         for SCI in range(15):
             context_free = bytes(8) + modEUI64(p.ll_sa)
@@ -336,7 +338,7 @@ class PDB:
             if IPv6_SA == contextualized:
                 return 0b111, SCI, bytes()
         # 2-byte options
-        if IPv6_SA[:14] == b'\xfe\x80\0\0\0\0\0\0\0\0\0\xff\xfe\0':
+        if IPv6_SA[:14] == link_local_prefix + b'\0\0\0\xff\xfe\0':
             return 0b010, 0, IPv6_SA[14:]
         for SCI in range(15):
             contextualized_0 = self.context[SCI].rewriteSA(bytes(8) + b'\0\0\0\xff\xfe\0\0\0')
@@ -345,7 +347,7 @@ class PDB:
             if matches(IPv6_SA, context_mask, contextualized_0):
                 return 0b110, SCI, IPv6_SA[14:]
         # 8-byte options
-        if IPv6_SA[:8] == b'\xfe\x80\0\0\0\0\0\0':
+        if IPv6_SA[:8] == link_local_prefix:
             return 0b001, 0, IPv6_SA[8:]
         for SCI in range(15):
             contextualized_0 = self.context[SCI].rewriteSA(bytes(8) + b'\0\0\0\0\0\0\0\0')
@@ -360,7 +362,7 @@ class PDB:
         if IPv6_DA[0] != 0xff:
             # unicast
             # 0-byte options
-            if IPv6_DA == b'\xfe\x80\0\0\0\0\0\0' + modEUI64(p.ll_da):
+            if IPv6_DA == link_local_prefix + modEUI64(p.ll_da):
                 return 0b0011, 0, bytes()
             for DCI in range(15):
                 context_free = bytes(8) + modEUI64(p.ll_da)
@@ -368,7 +370,7 @@ class PDB:
                 if IPv6_DA == contextualized:
                     return 0b0111, DCI, bytes()
             # 2-byte options
-            if IPv6_DA[:14] == b'\xfe\x80\0\0\0\0\0\0\0\0\0\xff\xfe\0':
+            if IPv6_DA[:14] == link_local_prefix + b'\0\0\0\xff\xfe\0':
                 return 0b0010, 0, IPv6_DA[14:]
             for DCI in range(15):
                 contextualized_0 = self.context[DCI].rewriteDA(bytes(8) + b'\0\0\0\xff\xfe\0\0\0')
@@ -377,7 +379,7 @@ class PDB:
                 if matches(IPv6_DA, context_mask, contextualized_0):
                     return 0b0110, DCI, IPv6_DA[14:]
             # 8-byte options
-            if IPv6_DA[:8] == b'\xfe\x80\0\0\0\0\0\0':
+            if IPv6_DA[:8] == link_local_prefix:
                 return 0b0001, 0, IPv6_DA[8:]
             for DCI in range(15):
                 contextualized_0 = self.context[DCI].rewriteDA(bytes(8) + b'\0\0\0\0\0\0\0\0')
@@ -443,7 +445,7 @@ class PDB:
         #     if (mode & 2) == 0:
         #         prefix, i = pdu[i:i+8], i+8
         #     else:
-        #         prefix = b'\xfe\x80\0\0\0\0\0\0'
+        #         prefix = link_local_prefix
         #     if (mode & 1) == 0:
         #         interfaceIdentifier, i = pdu[i:i+8], i+8
         #     else:
@@ -513,7 +515,7 @@ class PDB:
         if HLIM == 3: IPv6_HL = 255
         if SACSAM & 4:          SA_prefix = bytes(8)
         elif SACSAM == 0:       SA_prefix = readOctets(8)
-        else:                   SA_prefix = b'\xfe\x80\0\0\0\0\0\0'
+        else:                   SA_prefix = link_local_prefix
         if SACSAM & 3 == 3:     SA_iid = modEUI64(p.ll_sa)
         elif SACSAM == 4:       SA_iid = bytes(8)
         elif SACSAM & 3 == 2:   SA_iid = b'\0\0\0\ff\fe\0' + readOctets(2)
@@ -527,7 +529,7 @@ class PDB:
             IPv6_DA = b'\xff' + readOctets(2) + p.pdb.context[DCI].unicastPrefixBasedMulticast + readOctets(4)
         else:
             if MDACDAM & 0xc == 4:      DA_prefix = bytes(8)
-            elif MDACDAM & 0xc == 0:    DA_prefix = b'\xfe\x80\0\0\0\0\0\0'
+            elif MDACDAM & 0xc == 0:    DA_prefix = link_local_prefix
             elif 8 < MDACDAM < 11:      DA_prefix = b'\xff' + readOctets(1) + b'\0\0\0\0\0\0'
             else:                       DA_prefix = b'\xff\x02\0\0\0\0\0\0'
             if MDACDAM & 11 == 1:       DA_iid = readOctets(8)

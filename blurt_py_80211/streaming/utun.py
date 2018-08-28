@@ -1,113 +1,22 @@
-import socket, struct, fcntl, ctypes, os, subprocess, time
+import socket, fcntl, ctypes, os, subprocess, time
+import sockio
+import lowpan
 
-libc = ctypes.CDLL('libc.dylib')
-errno = ctypes.c_int.in_dll(libc, "errno")
-
-PF_SYSTEM = 32
-AF_SYS_CONTROL = 2
-SYSPROTO_CONTROL = 2
-UTUN_CONTROL_NAME = b"com.apple.net.utun_control"
-MAX_KCTL_NAME = 96
-CTLIOCGINFO = 0xc0000000 | 100 << 16 | ord('N') << 8 | 3
-UTUN_OPT_IFNAME = 2
-
-class ctl_info(ctypes.Structure):
-    _fields_ = [("ctl_id", ctypes.c_uint32),
-                ("ctl_name", ctypes.c_char * MAX_KCTL_NAME)]
-
-class in6_addr(ctypes.Structure):
-    _fields_ = [('__u6_addr8', ctypes.c_uint8*16)]
-
-class sockaddr_in6(ctypes.Structure):
-    _fields_ = [
-        ('sin6_len', ctypes.c_uint8),
-        ('sin6_family', ctypes.c_uint8),
-        ('sin6_port', ctypes.c_uint16),
-        ('sin6_flowinfo', ctypes.c_uint32),
-        ('sin6_addr', in6_addr),
-        ('sin6_scope_id', ctypes.c_uint32),
-    ]
-
-class in6_addrlifetime(ctypes.Structure):
-    _fields_ = [
-        ('ia6t_expire', ctypes.c_uint64),
-        ('ia6t_preferred', ctypes.c_uint64),
-        ('ia6t_vltime', ctypes.c_uint32),
-        ('ia6t_pltime', ctypes.c_uint32),
-    ]
-
-class in6_aliasreq(ctypes.Structure):
-    _fields_ = [
-        ('ifra_name', ctypes.c_char*16),
-        ('ifra_addr', sockaddr_in6),
-        ('ifra_dstaddr', sockaddr_in6),
-        ('ifra_prefixmask', sockaddr_in6),
-        ('ifra_flags', ctypes.c_int),
-        ('ifra_lifetime', in6_addrlifetime),
-    ]
-
-class ifk_data_t(ctypes.Union):
-    _fields_ = [
-        ('ifk_ptr', ctypes.c_void_p),
-        ('ifk_value', ctypes.c_int),
-    ]
-
-class ifkpi(ctypes.Structure):
-    _fields_ = [
-        ('ifk_module_id', ctypes.c_uint),
-        ('ifk_type', ctypes.c_uint),
-        ('ifk_data', ifk_data_t),
-    ]
-
-class sockaddr(ctypes.Structure):
-    _fields_ = [
-        ('sa_len', ctypes.c_uint8),
-        ('sa_family', ctypes.c_uint8),
-        ('sa_data', ctypes.c_byte * 14),
-    ]
-
-class ifdevmtu(ctypes.Structure):
-    _fields_ = [
-        ('ifdm_current', ctypes.c_int),
-        ('ifdm_min', ctypes.c_int),
-        ('ifdm_max', ctypes.c_int),
-    ]
-
-class ifr_ifru_t(ctypes.Union):
-    _fields_ = [
-        ('ifru_addr', sockaddr),
-        ('ifru_dstaddr', sockaddr),
-        ('ifru_broadaddr', sockaddr),
-        ('ifru_flags', ctypes.c_short),
-        ('ifru_metric', ctypes.c_int),
-        ('ifru_mtu', ctypes.c_int),
-        ('ifru_phys', ctypes.c_int),
-        ('ifru_media', ctypes.c_int),
-        ('ifru_intval', ctypes.c_int),
-        ('ifru_data', ctypes.c_void_p),
-        ('ifru_devmtu', ifdevmtu),
-        ('ifru_kpi', ifkpi),
-        ('ifru_wake_flags', ctypes.c_uint32),
-        ('ifru_route_refcnt', ctypes.c_uint32),
-        ('ifru_cap', ctypes.c_int*2),
-        ('ifru_functional_type', ctypes.c_uint32),
-    ]
-
-class ifreq(ctypes.Structure):
-    _fields_ = [
-        ('ifr_name', ctypes.c_char*16),
-        ('ifr_ifru', ifr_ifru_t),
-    ]
+errno = ctypes.c_int.in_dll(ctypes.CDLL(), "errno")
 
 # note the existence of /System/Library/Extensions/EAP-*.bundle
 
+def linkLocalIPv6(ll_addr):
+    iid_chars = binascii.hexlify(lowpan.modEUI64(ll_addr)).decode()
+    return 'fe80::' + ':'.join(iid_chars[i:i+4] for i in range(0,16,4))
+
 class utun:
-    def __init__(self, nonblock=False, cloexec=True, mtu=150):
-        self.fd = socket.socket(socket.PF_SYSTEM, socket.SOCK_DGRAM, SYSPROTO_CONTROL)
-        info = ctl_info(0, UTUN_CONTROL_NAME)
-        fcntl.ioctl(self.fd, CTLIOCGINFO, info)
+    def __init__(self, nonblock=False, cloexec=True, mtu=150, ll_addr=None):
+        self.fd = socket.socket(socket.PF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL)
+        info = sockio.ctl_info(0, sockio.UTUN_CONTROL_NAME)
+        fcntl.ioctl(self.fd, sockio.CTLIOCGINFO, info)
         self.fd.connect((info.ctl_id, 0))
-        self.iface = self.fd.getsockopt(SYSPROTO_CONTROL, UTUN_OPT_IFNAME, 256)[:-1].decode()
+        self.iface = self.fd.getsockopt(socket.SYSPROTO_CONTROL, sockio.UTUN_OPT_IFNAME, 256)[:-1].decode()
         if nonblock:
             fcntl.fcntl(self.fd, fcntl.F_SETFL, os.O_NONBLOCK)
         if cloexec:
@@ -153,18 +62,21 @@ class utun:
             # in6_if_up_dad_start(ifp);
             #     (mucks around with prefixes via in6_ifattach_linklocal?)
             #
-            # Doesn't crash, but haven't confirmed that it does anything.
+            # Doesn't crash, but I haven't confirmed that it does anything.
             with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, 0) as s:
-                SIOCLL_START = 0xc0806982
-                fcntl.ioctl(s, SIOCLL_START, in6_aliasreq(self.iface.encode(), (ctypes.sizeof(sockaddr_in6), socket.AF_LINK)))
-                SIOCSIFMTU = 0x80206934
-                fcntl.ioctl(s, SIOCSIFMTU, ifreq(self.iface.encode(), ifr_ifru_t(ifru_mtu=mtu)))
+                aliasreq = sockio.in6_aliasreq(self.iface.encode(), (ctypes.sizeof(sockio.sockaddr_in6), socket.AF_LINK))
+                fcntl.ioctl(s, sockio.SIOCLL_START, aliasreq)
+                ifreq = sockio.ifreq(self.iface.encode(), sockio.ifr_ifru_t(ifru_mtu=mtu))
+                fcntl.ioctl(s, sockio.SIOCSIFMTU, ifreq)
+        if ll_addr is not None:
+            self.ifconfig('inet6', linkLocalIPv6(ll_sa))
+        self.ll_addr = ll_addr
         self.fileno = self.fd.fileno
     def ifconfig(self, *args):
         subprocess.Popen(['ifconfig', self.iface] + list(args)).wait()
     def write(self, buf):
         v6 = (buf[0]>>4) == 6
-        protocol = ctypes.c_uint32(libc.htonl((socket.AF_INET, socket.AF_INET6)[v6]))
+        protocol = ctypes.c_uint32(socket.htonl((socket.AF_INET, socket.AF_INET6)[v6]))
         count = os.writev(self.fd.fileno(), [protocol, buf])
         return max(count-4, 0) if (count>0) else count
     def read(self):
@@ -173,5 +85,5 @@ class utun:
         count = os.readv(self.fd.fileno(), [protocol, buf])
         if count < 0:
             raise OSError(errno.value)
-        protocol = libc.ntohl(protocol)
+        protocol = socket.ntohl(protocol)
         return bytes(buf[:count-4])

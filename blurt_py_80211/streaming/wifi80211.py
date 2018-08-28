@@ -1,50 +1,21 @@
-#!/usr/bin/env python3.4
-import sys
-import os
-import select
-import threading
+#!/usr/bin/env python3.7
+from os import pipe, fdopen
+from queue import Queue
+from itertools import count, islice
+from collections import namedtuple, deque
+from threading import Thread, Condition
 import numpy as np
-import weave
-import itertools
-import queue
-import collections
-import time
-import audio
-import scipy.signal
-import lowpan
-import binascii
+from audio import AudioInterface, stream
+from iir import IIRFilter
+import kernels
 
-class IIRFilter:
-    def __init__(self, **kwargs):
-        if kwargs.pop('design', False):
-            self.sos = scipy.signal.iirdesign(output='sos', analog=False, **kwargs)
-        elif 'sos' in kwargs:
-            self.sos = kwargs['sos']
-        elif 'tf' in kwargs:
-            self.sos = scipy.signal.tf2sos(*kwargs['tf'])
-        elif 'zpk' in kwargs:
-            self.sos = scipy.signal.zpk2sos(*kwargs['zpk'])
-        else:
-            raise NotImplementedError()
-        self.axis = kwargs.pop('axis', -1)
-        self.dtype = kwargs.pop('dtype', np.complex128)
-        self.shape = list(kwargs.pop('shape', (None,)))
-        self.shape[self.axis] = 2
-        self.reset()
-    def reset(self):
-        self.zi = np.zeros((self.sos.shape[0],) + tuple(self.shape), self.dtype)
-    @staticmethod
-    def lowpass(freq):
-        return IIRFilter(design=True, wp=freq*2, ws=freq*2*1.2, gpass=.021, gstop=30, ftype='butter')
-    def __call__(self, x):
-        y, self.zi = scipy.signal.sosfilt(self.sos, x, axis=self.axis, zi=self.zi)
-        return y
-    def copy(self):
-        return IIRFilter(sos=self.sos, axis=self.axis, dtype=self.dtype, shape=self.shape)
-
-Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
+Channel = namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
 ############################ Parameters ############################
+
+bypassAudio = False
+bypassPHY = False
+bypassLoWPAN = False
 
 mtu = 76 #150
 _channel = Channel(48e3, 17.0e3, 8) # 16.5e3
@@ -84,12 +55,7 @@ def CRC(x):
     a = np.r_[np.r_[np.zeros(x.size, int), np.ones(32, int)] ^ \
               np.r_[np.zeros(32, int), x[::-1]], np.zeros(-x.size%16, int)]
     a = (a.reshape(-1, 16) << np.arange(16)).sum(1)[::-1]
-    return weave.inline("""
-    uint32_t r = 0, A=a.extent(blitz::firstDim);
-    for (int i=0; i<A; i++)
-        r = (r << 16) ^ a(i) ^ lut(r >> 16);
-    return_val = r;
-    """, ['a','lut'], type_converters=weave.converters.blitz)
+    return kernels.crc(a, lut)
 
 lut = np.arange(1<<16, dtype=np.uint64) << 32
 for i in range(47,31,-1):
@@ -106,43 +72,14 @@ output_map_soft = output_map * 2 - 1
 
 def encode(y):
     output = np.empty(y.size*2, np.uint8)
-    weave.inline("""
-    int sh = 0, N = y.extent(blitz::firstDim);
-    for (int i=0; i<N; i++) {
-        sh = (sh>>1) ^ ((int)y(i) << 6);
-        output(2*i+0) = output_map(0,sh);
-        output(2*i+1) = output_map(1,sh);
-    }
-    """, ['y','output','output_map'], type_converters=weave.converters.blitz)
+    kernels.ccenc(y, output, output_map)
     return output
 
 def decode(llr):
     N = llr.size//2
     x = (llr[:N*2].reshape(-1,2,1)*output_map_soft).sum(1)
     msg = np.empty(N, np.uint8)
-    weave.inline("""
-    const int M = 128;
-    int64_t cost[M*2], scores[M] = {/* zero-initialized */};
-    uint8_t bt[N][M];
-    for (int k=0; k<N; k++) {
-        for (int i=0; i<M; i++) {
-            cost[2*i+0] = scores[((i<<1) & 127) | 0] + x(k, i);
-            cost[2*i+1] = scores[((i<<1) & 127) | 1] + x(k, i);
-        }
-        for (int i=0; i<M; i++) {
-            int a = cost[2*i+0];
-            int b = cost[2*i+1];
-            bt[k][i] = (a<b) ? 1 : 0;
-            scores[i] = (a<b) ? b : a;
-        }
-    }
-    int i = (scores[0] < scores[1]) ? 1 : 0;
-    for (int k=N-1; k>=0; k--) {
-        int j = bt[k][i];
-        msg(k) = i >> 6;
-        i = ((i<<1)&127) + j;
-    }
-    """, ['N','x','msg'], type_converters=weave.converters.blitz)
+    kernels.viterbi(N, x, msg)
     return msg
 
 ############################ Rates ############################
@@ -250,10 +187,13 @@ def estimate_cfo(y, overlap, span):
 def remove_cfo(y, k, theta):
     return y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
-def downconvert(source, channel):
+def downconvert(source_queue, channel):
     i = 0
     lp = IIRFilter.lowpass(.45/channel.upsample_factor)
-    for y in source:
+    while True:
+        y = source_queue.get()
+        if y is None:
+            break
         smoothed = lp(y * np.exp(-1j*2*np.pi*channel.Fc/channel.Fs * np.r_[i:i+y.size]))
         yield smoothed[-i%channel.upsample_factor::channel.upsample_factor]
         i += y.size
@@ -359,7 +299,7 @@ class BlurtDecoder:
                 return
         if j_valid < self.length_symbols + 1:
             return
-        syms = np.array(list(itertools.islice(self.syms, self.length_symbols)))
+        syms = np.array(list(islice(self.syms, self.length_symbols)))
         demapped_bits = self.rate.demap(syms, self.dispersion).reshape(-1, self.Ncbps)
         deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, True)
         llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
@@ -372,14 +312,14 @@ class BlurtDecoder:
         global G
         G = self.training_data[0]
 
-def decodeBlurt(source, channel):
+def decodeBlurt(source_queue, channel):
     autocorrelator = Autocorrelator()
     peakDetector = PeakDetector(25)
-    lookback = collections.deque()
+    lookback = deque()
     decoders = []
     k_current = 0
     k_lookback = 0
-    for sequence in downconvert(source, channel):
+    for sequence in downconvert(source_queue, channel):
         autocorrelator.feed(sequence)
         for y in autocorrelator:
             peakDetector.feed(y)
@@ -413,13 +353,16 @@ def subcarriersFromBits(bits, rate, scramblerState):
     grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
     return rate.symbols[grouped].reshape(-1, Nsc)
 
-def encodeBlurt(source, channel):
+def encodeBlurt(source_queue, channel):
     cutoff = (Nsc_used/2 + .5)/nfft
     lp1 = IIRFilter.lowpass(cutoff/channel.upsample_factor)
     lp2 = lp1.copy()
     baseRate = rates[0xb]
     k = 0
-    for octets in source:
+    while True:
+        octets = source_queue.get()
+        if octets is None:
+           break
         # prepare header and payload bits
         rateEncoding = 0xb
         rate = rates[rateEncoding]
@@ -461,6 +404,7 @@ def encodeBlurt(source, channel):
         for i in range(preemphasisOrder):
             output = np.diff(np.r_[output,0])
         output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
+        output /= abs(output).max()
         # stereo beamforming reduction
         delay = np.zeros(int(stereoDelay*channel.Fs))
         pause = np.zeros(int(gap*channel.Fs))
@@ -468,38 +412,29 @@ def encodeBlurt(source, channel):
 
 ############################ Audio ############################
 
-def iterUntilIs(fn, sentinel):
-    while True:
-        x = fn()
-        if x is sentinel:
-            break
-        yield x
-
-class BlurtStream(audio.stream.ThreadedStream):
-    def __init__(self, source, sink, txchannel, rxchannel):
+class BlurtStream(stream.ThreadedStream):
+    def __init__(self, source_queue, sink, txchannel, rxchannel):
+        self.encoder = encodeBlurt(source_queue, txchannel)
+        self.vu = 1e-10
+        self.cv = Condition()
+        self.ready = False
         super().__init__(channels=2, in_thread=True, out_queue_depth=1,
                          inBufSize=audioFrameSize, outBufSize=audioFrameSize)
-        self.compile(txchannel)
-        self.compile(rxchannel)
-        self.encoder = encodeBlurt(source, txchannel)
-        self.decoder = decodeBlurt(iterUntilIs(self.in_queue.get, None), rxchannel)
-        self.vu = 1e-10
+        self.decoder = decodeBlurt(self.in_queue, rxchannel)
         self.sink = sink
-    def compile(self, channel):
-        encoder = encodeBlurt([np.frombuffer(b'a', np.uint8)], channel)
-        decoder = decodeBlurt((np.zeros(10000), next(encoder)[:,0], np.zeros(10000)), channel)
-        next(decoder)
+        with self.cv:
+            self.ready = True
+            self.cv.notify()
     def consume(self, sequence):
         self.vu = (sequence**2).max()
         super().consume(sequence)
     def in_thread_loop(self):
-        while not hasattr(self, 'decoder'):
-            time.sleep(.01)
+        with self.cv:
+            while not self.ready:
+                self.cv.wait()
         for packet in self.decoder:
             self.sink(packet)
     def thread_produce(self):
-        while not hasattr(self, 'decoder'):
-            time.sleep(.01)
         return next(self.encoder)
     def immediate_produce(self):
         carrierSense = (self.vu == 0 or self.vu > 10**(.1 * (vuThresh-80)))
@@ -509,56 +444,71 @@ class BlurtStream(audio.stream.ThreadedStream):
         else:
             return self.out_queue.get_nowait()
 
-class BlurtSession(object):
+class WaitableTransceiver:
+    def __init__(self):
+        rd, wr = pipe()
+        self.readpipe = (fdopen(rd, 'rb'), fdopen(wr, 'wb'))
+        self.packet_in_queue = deque()
+    def start(self):
+        pass
+    def stop(self):
+        pass
+    def read(self):
+        try:
+            self.readpipe[0].read(1)
+            return self.packet_in_queue.popleft()
+        except:
+            return None
+    def write(self, buf):
+        self.sink(buf)
+    def fileno(self):
+        return self.readpipe[0].fileno()
+    def sink(self, buf):
+        self.packet_in_queue.append(buf)
+        self.readpipe[1].write(b'\0')
+        self.readpipe[1].flush()
+
+class BlurtTransceiver(WaitableTransceiver):
     def __init__(self, txchannel, rxchannel, rate=0):
-        self.inqueue = collections.deque()
-        self.outqueue = queue.Queue(1)
+        super().__init__()
+        self.packet_out_queue = Queue(1)
         self.txchannel = txchannel
         self.rxchannel = rxchannel
         self.rate = rate
-        self.stream = BlurtStream(iterUntilIs(self.outqueue.get, None),
-                                  self.rxPush, txchannel, rxchannel)
-        rd, wr = os.pipe()
-        self.readpipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
+        self.stream = BlurtStream(self.packet_out_queue, self.sink, txchannel, rxchannel)
     def start(self):
-        self.audioInterface = audio.AudioInterface()
+        self.audioInterface = AudioInterface()
         self.audioInterface.record(self.stream, self.rxchannel.Fs)
         self.audioInterface.play(self.stream, self.txchannel.Fs)
     def stop(self):
         self.audioInterface.stop()
         self.audioInterface = None
-    def rxPush(self, buf):
-        self.inqueue.append(buf)
-        self.readpipe[1].write(b'\0')
-        self.readpipe[1].flush()
-    def read(self):
-        try:
-            self.readpipe[0].read(1)
-            return self.inqueue.popleft()
-        except:
-            return None
     def write(self, buf):
-        self.outqueue.put(buf)
-    def fileno(self):
-        return self.readpipe[0].fileno()
+        self.packet_out_queue.put(buf)
 
 if __name__ == '__main__':
-    xcvr = BlurtSession(_channel, _channel)
+    import sys
+    xcvr = BlurtTransceiver(_channel, _channel)
     rlist = [xcvr]
     realTunnel = '--utun' in sys.argv
     if not realTunnel:
         def packetSource():
-            for i in itertools.count():
-                xcvr.write(np.r_[np.random.random_integers(ord('A'),ord('Z'),26),
+            for i in count():
+                xcvr.write(np.r_[np.random.randint(ord('A'),ord('Z'),26),
                                  np.frombuffer(('%06d' % i).encode(), np.uint8)])
-        threading.Thread(target=packetSource, daemon=True).start()
+        def packetSink(datagram, lsnr, latency_us):
+            print(clearLine + 'audio -> /dev/null (%d bytes) (seqno %d) (%10f dB) (%.3f us)' % (
+                len(datagram), int(datagram[26:32].decode(), 10), lsnr, latency_us))
+        Thread(target=packetSource, daemon=True).start()
         u1, u2 = None, None
     else:
+        import binascii
         import utun
-        u1 = utun.utun(mtu=1280)
-        u2 = utun.utun(mtu=1280)
-        u1.ifconfig('inet6', 'fe80::caff:fef0:00d1')
-        u2.ifconfig('inet6', 'fe80::caff:fef0:00d2')
+        import lowpan
+        ll_sa = binascii.unhexlify('0200c0f000d1')
+        ll_da = binascii.unhexlify('0200c0f000d2')
+        u1 = utun.utun(mtu=1280, ll_addr=ll_sa)
+        u2 = utun.utun(mtu=1280, ll_addr=ll_da)
         rlist.append(u1)
         rlist.append(u2)
         class BlurtPDB(lowpan.PDB):
@@ -569,11 +519,16 @@ if __name__ == '__main__':
                 u2.write(datagram)
         pdb = BlurtPDB()
         pdb.ll_mtu = mtu - 12 # room for src, dst link-layer address
-        ll_sa = binascii.unhexlify('0200caf000d1')
-        ll_da = binascii.unhexlify('0200caf000d2')
+        def packetSink(datagram, lsnr, latency_us):
+            print(clearLine + 'audio -> lowpan (%d bytes) (%10f dB) (%.3f us)' % (len(datagram), lsnr, latency_us))
+            sa = datagram[0:6]
+            da = datagram[6:12]
+            packet = lowpan.Packet(sa, da, datagram[12:])
+            pdb.dispatchFragmentedPDU(packet)
     xcvr.start()
     clearLine = '\r\x1b[2K'
     try:
+        import select
         while True:
             for fd in select.select(rlist, [], [], .01)[0]:
                 if fd in (u1, u2):
@@ -585,21 +540,9 @@ if __name__ == '__main__':
                         xcvr.write(np.frombuffer(ll_sa + ll_da + f, np.uint8))
                 elif fd is xcvr:
                     datagram, lsnr = xcvr.read()
-                    if realTunnel:
-                        dst = 'lowpan'
-                        info = ''
-                    else:
-                        info = '(seqno %d) ' % int(str(datagram[26:32], 'utf-8'), 10)
-                        dst = '/dev/null'
                     ap = xcvr.audioInterface
-                    latency_us = (ap.recordingLatency+ap.playbackLatency) * \
-                                 ap.nanosecondsPerAbsoluteTick*1e-3
-                    print(clearLine + 'audio -> %s (%d bytes) %s(%10f dB) (%.3f us)'
-                        % (dst, len(datagram), info, lsnr, latency_us))
-                    if realTunnel:
-                        sa = datagram[0:6]
-                        da = datagram[6:12]
-                        pdb.dispatchFragmentedPDU(lowpan.Packet(sa, da, datagram[12:]))
+                    latency_us = (ap.recordingLatency+ap.playbackLatency) * ap.nanosecondsPerAbsoluteTick*1e-3
+                    packetSink(datagram, lsnr, latency_us)
             vu = int(max(0, 80 + 10*np.log10(xcvr.stream.vu)))
             bar = [' '] * 100
             bar[:vu] = ['.'] * vu

@@ -91,7 +91,7 @@ class IOStream:
             outOutputData: POINTER(AudioBufferList),
             inOutputTime: POINTER(AudioTimeStamp),
             inClientData: c_void_p):
-        pass
+        return 0
 
 class InputStream(IOStream):
     def __init__(self, dev):
