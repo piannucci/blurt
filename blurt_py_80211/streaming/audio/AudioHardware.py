@@ -1,8 +1,7 @@
 import objc, CoreFoundation
 from ctypes import Array as ctypes_Array
+from MacTypes import *
 from AudioHardwareBase import *
-
-Boolean = c_uint8
 
 CFDictionaryRef = c_void_p
 
@@ -580,8 +579,8 @@ class AudioObject:
         propInfo = audioPropertyInfo.get(addr.mSelector)
         q, ql, qs = None, None, None
         if propInfo:
-            q, ql = encode(qual[0] if qual else None, propInfo.qualType)
-            qs = sizeof(q) if qual else 0
+            q, ql = encode(qual, propInfo.qualType)
+            qs = sizeof(q) if qual is not None else 0
             if q is not None:
                 q = byref(q)
         size = None
@@ -622,7 +621,7 @@ class AudioObject:
         return classNameForClassID(self.classID)
     @property
     def baseClassID(self):
-        c = self[kAudioObjectPropertyBaseClass,0,0].value
+        return self[kAudioObjectPropertyBaseClass,0,0].value
     @property
     def baseClassName(self):
         return classNameForClassID(self.baseClassID)
@@ -659,5 +658,7 @@ class AudioObject:
         if not isinstance(other, AudioObject):
             return False
         return self.objectID == other.objectID
+    def __hash__(self):
+        return hash(self.objectID.value)
 
 AudioSystemObject = AudioObject(kAudioObjectSystemObject)

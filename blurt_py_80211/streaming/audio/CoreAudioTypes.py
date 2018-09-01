@@ -1,19 +1,5 @@
-from ctypes import *
-
-Float32 = c_float
-Float64 = c_double
-UInt64 = c_uint64
-SInt64 = c_int64
-UInt32 = c_uint32
-SInt32 = c_int32
-UInt16 = c_uint16
-SInt16 = c_int16
-
-OSStatus = SInt32
-
-ntohl = CDLL(None).ntohl
-def fourcc(s):
-    return ntohl(c_uint32.from_buffer_copy(s.encode()))
+from MacTypes import *
+import numpy as np
 
 kAudio_UnimplementedError     = OSStatus(-4)
 kAudio_FileNotFoundError      = OSStatus(-43)
@@ -343,3 +329,30 @@ class AudioChannelLayout(Structure):
 
 def AudioChannelLayoutTag_GetNumberOfChannels(layoutTag):
     return UInt32(layoutTag & 0x0000ffff)
+
+pythonapi.PyMemoryView_FromMemory.argtypes = (c_void_p, c_ssize_t, c_int)
+pythonapi.PyMemoryView_FromMemory.restype = py_object
+
+_dtypeCache = {}
+def dtypeForStream(asbd: AudioStreamBasicDescription):
+    key = asbd.mFormatID, asbd.mFormatFlags, asbd.mBitsPerChannel
+    if key not in _dtypeCache:
+        if asbd.mFormatFlags & kAudioFormatFlagIsFloat.value:
+            fmt = 'f%d'
+        elif asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger.value:
+            fmt = 'i%d'
+        else:
+            fmt = 'u%d'
+        _dtypeCache[key] = np.dtype(fmt % (asbd.mBitsPerChannel // 8,))
+    return _dtypeCache[key]
+
+def arrayFromBuffer(b: AudioBuffer, asbd: AudioStreamBasicDescription):
+    dtype = dtypeForStream(asbd)
+    shape = (b.mDataByteSize // asbd.mBytesPerFrame, b.mNumberChannels)
+    strides = (asbd.mBytesPerFrame, dtype.itemsize)
+    data = pythonapi.PyMemoryView_FromMemory(b.mData, b.mDataByteSize, 0x200)
+    a = np.ndarray(shape, dtype, data, 0, strides)
+    a.flags.writeable = True
+    return a
+
+AudioBufferPointer = POINTER(AudioBuffer)
