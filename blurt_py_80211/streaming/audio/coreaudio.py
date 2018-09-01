@@ -189,11 +189,7 @@ class IOSession:
             self.nsPerAbsoluteTick = nanosecondsPerAbsoluteTick()
 
     def __del__(self):
-        with self.cv:
-            self.stop()
-            if self.created:
-                trap(AudioDeviceDestroyIOProcID, self.device.objectID, self.ioProcID)
-                trap(AudioHardwareDestroyAggregateDevice, self.device.objectID)
+        self.destroyAggregate()
 
     def addDevice(self, device, scope):
         with self.cv:
@@ -323,6 +319,14 @@ class IOSession:
                 self.device[kAudioDevicePropertyBufferFrameSize, scope] = self.bufSize[scope.value]
             self.created = True
 
+    def destroyAggregate(self):
+        with self.cv:
+            self.stop()
+            if self.created:
+                trap(AudioDeviceDestroyIOProcID, self.device.objectID, self.ioProcID)
+                trap(AudioHardwareDestroyAggregateDevice, self.device.objectID)
+                self.created = False
+
     def start(self, inStream=None, outStream=None, startHostTime=None):
         with self.cv:
             if self.running:
@@ -444,47 +448,68 @@ class IOSession:
                     print('Overrun', file=sys.stderr)
         return 0
 
-def play(stream, Fs, device=None):
-    if not isinstance(stream, IOStream):
-        stream = ArrayStream(np.asarray(stream))
-    ios = IOSession(device)
-    try:
-        ios.play(stream, Fs)
-    except KeyboardInterrupt:
-        ios.stop()
-    return ios.wait()
+    def __enter__(self):
+        self.createAggregate()
+        return self
 
-def record(count_or_stream, Fs, device=None):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.destroyAggregate()
+        return exc_type is KeyboardInterrupt
+
+def coerceInputStream(inStream):
     if isinstance(count_or_stream, IOStream):
-        stream = count_or_stream
+        inStream = count_or_stream
     elif np.ndim(count_or_stream) == 0:
-        stream = ArrayStream(np.empty((int(count_or_stream), 1), np.float32))
+        inStream = InArrayStream(np.empty((int(count_or_stream), 1), np.float32))
     else:
-        stream = ArrayStream(np.asarray(count_or_stream))
-    ios = IOSession(device)
-    try:
-        ios.record(stream, Fs)
-    except KeyboardInterrupt:
-        ios.stop()
-    return ios.wait()
+        inStream = InArrayStream(np.asarray(count_or_stream))
+    return inStream
 
-def play_and_record(stream, Fs, outDevice=None, inDevices=None):
-    if not isinstance(stream, IOStream):
-        stream = ArrayStream(np.asarray(stream))
-    io = IOSession()
-    if outDevice:
-        io.addDevice(outDevice)
-    if inDevices:
-        for device in inDevices:
-            io.addDevice(device)
+def coerceOutputStream(outStream):
+    if not isinstance(outStream, IOStream):
+        outStream = OutArrayStream(np.asarray(outStream))
+    return outStream
+
+def prepareSession(Fs, outDevice, inDevice):
+    ios = IOSession()
     try:
-        ioss[0].play(stream, Fs, startTime)
-        for ios in ioss[1:]:
-            ios.record(stream, Fs, startTime)
-    except KeyboardInterrupt:
-        for ios in ioss:
-            ios.stop()
-    return [ios.wait() for ios in ioss]
+        iter(outDevice)
+        outDevices = outDevice
+    except TypeError:
+        outDevices = (outDevice,) if outDevice else ()
+    try:
+        iter(inDevice)
+        inDevices = inDevice
+    except TypeError:
+        inDevices = (inDevice,) if inDevice else ()
+    if outDevices:
+        ios.negotiateFormat(kAudioObjectPropertyScopeOutput, minimumSampleRate=Fs, maximumSampleRate=Fs)
+        for device in outDevices:
+            ios.addDevice(device, kAudioObjectPropertyScopeOutput)
+    if inDevices:
+        ios.negotiateFormat(kAudioObjectPropertyScopeInput, minimumSampleRate=Fs, maximumSampleRate=Fs)
+        for device in inDevices:
+            ios.addDevice(device, kAudioObjectPropertyScopeInput)
+    return ios
+
+def play(outStream, Fs, outDevice=None):
+    outStream = coerceOutputStream(outStream)
+    with prepareSession(Fs, outDevice, None) as ios:
+        ios.start(outStream=outStream)
+        return ios.wait()
+
+def record(count_or_stream, Fs, inDevice=None):
+    inStream = coerceInputStream(count_or_stream)
+    with prepareSession(Fs, None, inDevice) as ios:
+        ios.start(inStream=inStream)
+        return ios.wait()
+
+def play_and_record(stream, Fs, outDevice=None, inDevice=None):
+    inStream = coerceInputStream(stream)
+    outStream = coerceOutputStream(stream)
+    with prepareSession(Fs, outDevice, inDevice) as ios:
+        ios.start(inStream=inStream, outStream=outStream)
+        return ios.wait()
 
 def findMicrophone():
     for dev in AudioSystemObject[kAudioHardwarePropertyDevices,kAudioObjectPropertyScopeInput]:
