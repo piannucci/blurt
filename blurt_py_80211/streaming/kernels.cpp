@@ -62,15 +62,16 @@ static PyObject* crc(PyObject*self, PyObject* args)
     }
 }
 
-static PyObject* viterbi(PyObject*self, PyObject* args)
+static PyObject* decode(PyObject*self, PyObject* args)
 {
     PyArrayObject *py_x = NULL, *py_msg = NULL;
     long N;
-    if(!PyArg_ParseTuple(args,"lO!O!:viterbi",&N,&PyArray_Type,&py_x,&PyArray_Type,&py_msg))
+    if(!PyArg_ParseTuple(args,"lO!:decode",&N,&PyArray_Type,&py_x))
         return NULL;
     try
     {
         auto x = convert_to_blitz<double,2>(py_x,"x");
+        py_msg = (PyArrayObject *)PyArray_SimpleNew(1, (long[]){N}, NPY_UBYTE);
         auto msg = convert_to_blitz<npy_ubyte,1>(py_msg,"msg");
         const int M = 128;
         int64_t cost[M*2], scores[M] = {/* zero-initialized */};
@@ -97,23 +98,24 @@ static PyObject* viterbi(PyObject*self, PyObject* args)
             msg(k) = i >> 6;
             i = ((i<<1)&127) + j;
         }
-        Py_INCREF(Py_None);
-        return Py_None;
+        return (PyObject *)py_msg;
     }
     catch(...)
     {
+        Py_XDECREF(py_msg);
         return nullptr;
     }
 }
 
-static PyObject* ccenc(PyObject*self, PyObject* args)
+static PyObject* encode(PyObject *self, PyObject *args)
 {
-    PyArrayObject *py_y = NULL, *py_output = NULL, *py_output_map = NULL;
-    if(!PyArg_ParseTuple(args,"O!O!O!:ccenc",&PyArray_Type,&py_y,&PyArray_Type,&py_output,&PyArray_Type,&py_output_map))
+    PyArrayObject *py_y = NULL, *py_output_map = NULL, *py_output = NULL;
+    if(!PyArg_ParseTuple(args,"O!O!:encode",&PyArray_Type,&py_y,&PyArray_Type,&py_output_map))
         return NULL;
     try
     {
         auto y = convert_to_blitz<long,1>(py_y,"y");
+        py_output = (PyArrayObject *)PyArray_SimpleNew(1, (long[]){y.extent(blitz::firstDim)*2}, NPY_UBYTE);
         auto output = convert_to_blitz<npy_ubyte,1>(py_output,"output");
         auto output_map = convert_to_blitz<long,2>(py_output_map,"output_map");
         int sh = 0, N = y.extent(blitz::firstDim);
@@ -123,11 +125,11 @@ static PyObject* ccenc(PyObject*self, PyObject* args)
             output(2*i+0) = output_map(0,sh);
             output(2*i+1) = output_map(1,sh);
         }
-        Py_INCREF(Py_None);
-        return Py_None;
+        return (PyObject *)py_output;
     }
     catch(...)
     {
+        Py_XDECREF(py_output);
         return nullptr;
     }
 }
@@ -135,8 +137,8 @@ static PyObject* ccenc(PyObject*self, PyObject* args)
 static PyMethodDef compiled_methods[] =
 {
     {"crc", (PyCFunction)crc, METH_VARARGS},
-    {"viterbi", (PyCFunction)viterbi, METH_VARARGS},
-    {"ccenc", (PyCFunction)ccenc, METH_VARARGS},
+    {"decode", (PyCFunction)decode, METH_VARARGS},
+    {"encode", (PyCFunction)encode, METH_VARARGS},
     {NULL, NULL}
 };
 
