@@ -87,3 +87,5 @@ class utun:
             raise OSError(errno.value)
         protocol = socket.ntohl(protocol)
         return bytes(buf[:count-4])
+    def __repr__(self):
+        return '<utun %s>' % self.iface

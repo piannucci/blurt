@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 import pylab as pl
-from coreaudio import *
+from .coreaudio import *
 
 inArray = np.empty((4*96000, 4), np.float32)
 outArray = np.sin(np.arange(4*96000) * 2 * np.pi / 96000 * 440)

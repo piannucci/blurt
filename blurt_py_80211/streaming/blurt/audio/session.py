@@ -3,170 +3,11 @@ import numpy as np
 import threading
 import queue
 import uuid
-from AudioHardware import *
-from mach_time import *
+from .AudioHardware import *
+from .mach_time import *
+from .stream import IOStream, InArrayStream, OutArrayStream
 
 defInBufSize = defOutBufSize = 2048
-
-class IOStream:
-    def read(self, nFrames : int, outputTime : int, now : int) -> np.ndarray:
-        return np.empty((0, 1), np.float32)
-    def write(self, frames : np.ndarray, inputTime : int, now : int) -> None:
-        pass
-    def inDone(self):
-        return False
-    def outDone(self):
-        return False
-
-class AGCInStreamAdapter(IOStream):
-    def __init__(self, stream, target):
-        self.stream = stream
-        self.target = target # an AudioVolumeControl
-        self.curLevel = target[kAudioLevelControlPropertyDecibelValue].value
-        self.minLevel = target[kAudioLevelControlPropertyDecibelRange].mMinimum
-        self.maxLevel = target[kAudioLevelControlPropertyDecibelRange].mMaximum
-        self.historyTime = []
-        self.historyLevel = [self.curLevel]
-        self.clipSignal = 0
-    def write(self, frames, inputTime, now):
-        peak = np.abs(frames).max()
-        oldValue = self.curLevel
-        if peak > .5:
-            self.curLevel = np.clip(
-                    self.target[kAudioLevelControlPropertyDecibelValue].value - 1,
-                    self.minLevel, self.maxLevel)
-        elif peak < .25:
-            self.curLevel = np.clip(
-                    self.target[kAudioLevelControlPropertyDecibelValue].value + 1,
-                    self.minLevel, self.maxLevel)
-        if self.curLevel != oldValue:
-            self.target[kAudioLevelControlPropertyDecibelValue] = self.curLevel
-            self.historyTime.append(now)
-            self.historyLevel.append(self.curLevel)
-            expirationTime = now - 100e6 / nanosecondsPerAbsoluteTick()
-            expirationIndex = np.searchsorted(self.historyTime, expirationTime)
-            self.historyTime  = self.historyTime[expirationIndex:]
-            self.historyLevel = self.historyLevel[expirationIndex:]
-        lag = 0
-        factor = 10**(-.05 * self.historyLevel[np.searchsorted(self.historyTime, now-lag)])
-        frames *= factor
-        return self.stream.write(frames, inputTime, now)
-    def inDone(self):
-        return self.stream.inDone()
-
-class InArrayStream(IOStream):
-    def __init__(self, array):
-        if array.ndim == 1:
-            array = array[:,None]
-        self.inArray = array
-        self.nFrames, self.nChannelsPerFrame = array.shape
-        self.inFrame = 0
-    def write(self, frames, inputTime, now):
-        nFrames = min(frames.shape[0], self.inArray.shape[0]-self.inFrame)
-        if frames.shape[1] != self.nChannelsPerFrame:
-            frames = frames.mean(1)[:,None]
-        self.inArray[self.inFrame:self.inFrame+nFrames] = frames[:nFrames]
-        self.inFrame += nFrames
-    def inDone(self):
-        return self.inFrame >= self.nFrames
-
-class OutArrayStream(IOStream):
-    def __init__(self, array):
-        if array.ndim == 1:
-            array = array[:,None]
-        self.outArray = array
-        self.nFrames, self.nChannelsPerFrame = array.shape
-        self.outFrame = 0
-    def read(self, nFrames, outputTime, now):
-        frames = self.outArray[self.outFrame:self.outFrame+nFrames]
-        self.outFrame += nFrames
-        return frames
-    def outDone(self):
-        return self.outFrame >= self.nFrames
-
-class ThreadedStream(IOStream):
-    def __init__(self, nChannelsPerFrame=1, inThread=False, outThread=False, out_queue_depth=64):
-        self.dtype = dtype
-        self.nChannelsPerFrame = nChannelsPerFrame
-        self.inQueue = queue.Queue(64)
-        self.outQueue = queue.Queue(out_queue_depth)
-        self.outFragment = None
-        self.numSamplesRead = 0
-        self.numSamplesWritten = 0
-        self.numSamplesProduced = 0
-        self.numSamplesConsumed = 0
-        self.warnOnUnderrun = True
-        if inThread:
-            self.inThread = threading.Thread(target=self.in_thread_loop, daemon=True)
-            self.inThread.start()
-        if outThread:
-            self.outThread = threading.Thread(target=self.out_thread_loop, daemon=True)
-            self.outThread.start()
-
-    def in_thread_loop(self):
-        while True:
-            work = self.inQueue.get()
-            if work is None:
-                break
-            self.numSamplesConsumed += work.shape[0]
-            self.consume(work)
-
-    def out_thread_loop(self):
-        while True:
-            work = self.produce()
-            if work is None:
-                break
-            self.numSamplesProduced += work.shape[0]
-            self.outQueue.put(work)
-
-    def write(self, frames, inputTime, now):
-        self.numSamplesWritten += frames.shape[0]
-        try:
-            self.inQueue.put_nowait(frames)
-        except queue.Full:
-            print('ThreadedStream overrun')
-        except Exception as e:
-            print('ThreadedStream exception %s' % repr(e))
-
-    def read(self, nFrames, outputTime, now):
-        result = np.empty((nFrames, self.nChannelsPerFrame), self.dtype)
-        i = 0
-        if self.outFragment is not None:
-            n = min(self.outFragment.shape[0], nFrames)
-            result[:n] = self.outFragment[:n]
-            i += n
-            if n < self.outFragment.shape[0]:
-                self.outFragment = self.outFragment[n:]
-            else:
-                self.outFragment = None
-        while i < nFrames:
-            try:
-                fragment = self.immediate_produce()
-                if len(fragment.shape) == 1:
-                    fragment = fragment[:,np.newaxis]
-                if fragment.shape[1] != self.nChannelsPerFrame and fragment.shape[1] != 1:
-                    raise Exception('ThreadedStream produced a stream with the wrong number of channels.')
-            except queue.Empty:
-                result[i:] = 0
-                if self.warnOnUnderrun:
-                    print('ThreadedStream underrun')
-                break
-            except Exception as e:
-                print('ThreadedStream exception %s' % repr(e))
-            else:
-                n = min(nFrames-i, fragment.shape[0])
-                result[i:i+n] = fragment[:n]
-                i += n
-                if fragment.shape[0] > n:
-                    self.outFragment = fragment[n:]
-        self.numSamplesRead += result.shape[0]
-        return result
-
-    def immediate_produce(self):
-        return self.outQueue.get_nowait()
-
-    def stop(self):
-        self.inQueue.put(None)
 
 class IOSession:
     def __init__(self):
@@ -187,6 +28,8 @@ class IOSession:
             self.bufSize = {} # indexed by scope
             self.ioProc_ptr = AudioDeviceIOProc(self.ioProc)
             self.nsPerAbsoluteTick = nanosecondsPerAbsoluteTick()
+            self.inStream = None
+            self.outStream = None
 
     def __del__(self):
         self.destroyAggregate()
@@ -327,6 +170,16 @@ class IOSession:
                 trap(AudioHardwareDestroyAggregateDevice, self.device.objectID)
                 self.created = False
 
+    def nChannelsPerFrame(self, scope):
+        scope = getattr(scope, 'value', scope)
+        with self.cv:
+            self.negotiateFormat(scope)
+            result = 0
+            for d, s in self.deviceScopes:
+                if s.value == scope:
+                    result += self.vfActual[d, scope].mChannelsPerFrame
+            return result
+
     def start(self, inStream=None, outStream=None, startHostTime=None):
         with self.cv:
             if self.running:
@@ -337,8 +190,10 @@ class IOSession:
             self.ioProcException = None
             self.running = True
             self.ioStartHostTime = startHostTime
-            self.inStream = inStream
-            self.outStream = outStream
+            if inStream is not None:
+                self.inStream = inStream
+            if outStream is not None:
+                self.outStream = outStream
             trap(AudioDeviceStart, self.device.objectID, self.ioProcID)
 
     def stop(self):
@@ -365,6 +220,8 @@ class IOSession:
                 raise self.ioProcException
             if hasattr(self.inStream, 'stop'):
                 self.inStream.stop()
+            if hasattr(self.outStream, 'stop'):
+                self.outStream.stop()
             return self.inStream
 
     def stopIO(self):
@@ -471,7 +328,7 @@ def coerceOutputStream(outStream):
     return outStream
 
 def prepareSession(Fs, outDevice, inDevice):
-    ios = IOSession()
+    ios = Session()
     try:
         iter(outDevice)
         outDevices = outDevice
@@ -510,23 +367,3 @@ def play_and_record(stream, Fs, outDevice=None, inDevice=None):
     with prepareSession(Fs, outDevice, inDevice) as ios:
         ios.start(inStream=inStream, outStream=outStream)
         return ios.wait()
-
-def findMicrophone():
-    for dev in AudioSystemObject[kAudioHardwarePropertyDevices,kAudioObjectPropertyScopeInput]:
-        if dev[kAudioDevicePropertyTransportType].value != kAudioDeviceTransportTypeBuiltIn.value:
-            continue
-        for stream in dev[kAudioDevicePropertyStreams,kAudioObjectPropertyScopeInput]:
-            if stream[kAudioStreamPropertyDirection].value == 1 and \
-               stream[kAudioStreamPropertyTerminalType].value == 513: # INPUT_MICROPHONE from IOAudioTypes.h
-                break
-        else:
-            continue
-        return dev
-
-def findInputLevelControl(device):
-    for c in device[kAudioObjectPropertyControlList]:
-        if c[kAudioControlPropertyScope].value != kAudioObjectPropertyScopeInput.value:
-            continue
-        if c.classID != kAudioVolumeControlClassID.value:
-            continue
-        return c

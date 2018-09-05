@@ -1,3 +1,9 @@
+import numpy as np
+from collections import namedtuple
+from itertools import islice
+from . import kernels
+from .iir import IIRFilter
+
 Channel = namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
 stereoDelay = .005
@@ -16,7 +22,6 @@ ts_reps = 2
 dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
-vuThresh = 80
 
 ############################ Scrambler ############################
 
