@@ -1,7 +1,7 @@
 import objc, CoreFoundation
 from ctypes import Array as ctypes_Array
-from MacTypes import *
-from AudioHardwareBase import *
+from .MacTypes import *
+from .AudioHardwareBase import *
 
 CFDictionaryRef = c_void_p
 

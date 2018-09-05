@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from distutils.core import setup, Extension
+from setuptools import setup, find_packages, Extension
 import numpy
 
 setup(
@@ -10,7 +10,7 @@ setup(
     author='Peter Iannucci',
     author_email='iannucci@mit.edu',
     url='https://github.com/piannucci/blurt',
-    packages=['blurt', 'blurt.audio', 'blurt.phy', 'blurt.mac', 'blurt.net', 'blurt.tools'],
+    packages=find_packages(),
     ext_modules=[
         Extension(
             'blurt.phy.kernels',

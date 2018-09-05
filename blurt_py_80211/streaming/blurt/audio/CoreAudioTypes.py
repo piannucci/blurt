@@ -1,4 +1,4 @@
-from MacTypes import *
+from .MacTypes import *
 import numpy as np
 
 kAudio_UnimplementedError     = OSStatus(-4)

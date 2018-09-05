@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 import typing
 from ..graph import Output, Input, Block, OverrunWarning, UnderrunWarning
+from .stream import IOStream
 
 class InStream_SourceBlock(IOStream, Block):
     inputs = []

@@ -1,8 +1,13 @@
-import socket, fcntl, ctypes, os, subprocess, time
-import sockio
-import lowpan
+import socket
+import fcntl
+import ctypes, ctypes.util
+import os
+import subprocess
+import time
+from ..mac import lowpan
+from . import sockio
 
-errno = ctypes.c_int.in_dll(ctypes.CDLL(), "errno")
+errno = ctypes.c_int.in_dll(ctypes.CDLL(ctypes.util.find_library('c')), "errno")
 
 # note the existence of /System/Library/Extensions/EAP-*.bundle
 

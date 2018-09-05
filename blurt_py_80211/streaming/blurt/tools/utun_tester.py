@@ -1,9 +1,9 @@
 #!/usr/bin/env python3.7
 import select
 import binascii
-import utun
-import lowpan
 import hashlib
+from ..net import utun
+from ..mac import lowpan
 
 u1 = utun.utun(mtu=1280)
 u2 = utun.utun(mtu=1280)

@@ -1,15 +1,13 @@
 import numpy as np
 from .stream import IOStream
-from .AudioHardware import \
-    kAudioLevelControlPropertyDecibelValue,
-    kAudioLevelControlPropertyDecibelRange
+from . import AudioHardware as AH
 
 class AGCInStreamAdapter(IOStream):
     def __init__(self, target, stream=None):
         self.target = target # an AudioVolumeControl
-        self.curLevel = target[kAudioLevelControlPropertyDecibelValue].value
-        self.minLevel = target[kAudioLevelControlPropertyDecibelRange].mMinimum
-        self.maxLevel = target[kAudioLevelControlPropertyDecibelRange].mMaximum
+        self.curLevel = target[AH.kAudioLevelControlPropertyDecibelValue].value
+        self.minLevel = target[AH.kAudioLevelControlPropertyDecibelRange].mMinimum
+        self.maxLevel = target[AH.kAudioLevelControlPropertyDecibelRange].mMaximum
         self.historyTime = []
         self.historyLevel = [self.curLevel]
         self.clipSignal = 0
@@ -22,14 +20,14 @@ class AGCInStreamAdapter(IOStream):
         oldValue = self.curLevel
         if peak > .5:
             self.curLevel = np.clip(
-                    self.target[kAudioLevelControlPropertyDecibelValue].value - 1,
+                    self.target[AH.kAudioLevelControlPropertyDecibelValue].value - 1,
                     self.minLevel, self.maxLevel)
         elif peak < .25:
             self.curLevel = np.clip(
-                    self.target[kAudioLevelControlPropertyDecibelValue].value + 1,
+                    self.target[AH.kAudioLevelControlPropertyDecibelValue].value + 1,
                     self.minLevel, self.maxLevel)
         if self.curLevel != oldValue:
-            self.target[kAudioLevelControlPropertyDecibelValue] = self.curLevel
+            self.target[AH.kAudioLevelControlPropertyDecibelValue] = self.curLevel
             self.historyTime.append(now)
             self.historyLevel.append(self.curLevel)
             expirationTime = now - 100e6 / nanosecondsPerAbsoluteTick()

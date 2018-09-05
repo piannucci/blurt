@@ -1,4 +1,4 @@
-from MacTypes import *
+from .MacTypes import *
 
 class mach_timebase_info_data_t(Structure):
     _fields_ = [

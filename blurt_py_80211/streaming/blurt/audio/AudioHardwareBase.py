@@ -1,4 +1,4 @@
-from CoreAudioTypes import *
+from .CoreAudioTypes import *
 
 AudioObjectID = UInt32
 AudioClassID = UInt32

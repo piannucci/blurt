@@ -1,17 +1,19 @@
 #!/usr/bin/env python3.7
-from os import pipe, fdopen
-from queue import Queue, Empty
-from itertools import count
-from threading import Thread, Condition
+import sys
+import os
+import queue
+import itertools
+import threading
 import numpy as np
-from graph import Graph
-from graph.tee import Arbiter
-from audio.session import play_and_record, MicrophoneAGCAdapter, IOSession
-from audio.agc import MicrophoneAGCAdapter, CSMAOutStreamAdapter
-from audio.graph_adapter import InStream_SourceBlock, OutStream_SinkBlock
-from net.graph_adapter import TunnelSink, TunnelSource
-from mac.graph_adapter import PacketDispatchBlock
-from phy import Channel, IEEE80211aDecoderBlock, IEEE80211aEncoderBlock
+import binascii
+from .net import utun
+from .mac import lowpan
+from .graph import Graph
+from .graph.tee import Arbiter
+from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter, InStream_SourceBlock, OutStream_SinkBlock
+from .net.graph_adapter import TunnelSink, TunnelSource
+from .mac.graph_adapter import PacketDispatchBlock
+from .phy.ieee80211a import Channel, IEEE80211aDecoderBlock, IEEE80211aEncoderBlock
 
 ############################ Parameters ############################
 
@@ -26,11 +28,11 @@ vuThresh = 0
 
 ############################ Audio ############################
 
-class PollableQueue(Queue):
+class PollableQueue(queue.Queue):
     def __init__(self, maxsize=0):
         super().__init__(maxsize)
-        rd, wr = pipe()
-        self.pipe = (fdopen(rd, 'rb'), fdopen(wr, 'wb'))
+        rd, wr = os.pipe()
+        self.pipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
     def fileno(self):
         return self.pipe[0].fileno()
     def put(self, item, block=True, timeout=None):
@@ -52,7 +54,7 @@ class PollableTransceiver:
     def read(self):
         try:
             return self.packet_in_queue.get_nowait()
-        except Empty:
+        except queue.Empty:
             return None
     def fileno(self):
         return self.packet_in_queue.fileno()
@@ -62,7 +64,7 @@ class PollableTransceiver:
 class BlurtTransceiver(PollableTransceiver):
     def __init__(self, txchannel, rxchannel, rate=0):
         super().__init__()
-        self.packet_out_queue = Queue(1)
+        self.packet_out_queue = queue.Queue(1)
         self.txchannel = txchannel
         self.rxchannel = rxchannel
         self.rate = rate
@@ -131,13 +133,12 @@ class BlurtTransceiver(PollableTransceiver):
         self.ios = None
 
 if __name__ == '__main__':
-    import sys
     xcvr = BlurtTransceiver(_channel, _channel) if not bypassPHY else PollableTransceiver()
     rlist = [xcvr]
     realTunnel = '--utun' in sys.argv
     if not realTunnel:
         def packetSource():
-            for i in count():
+            for i in itertools.count():
                 xcvr.write(np.r_[np.random.randint(ord('A'),ord('Z'),26),
                                  np.frombuffer(('%06d' % i).encode(), np.uint8)])
         def packetSink(packet, lsnr, latency_us):
@@ -145,12 +146,9 @@ if __name__ == '__main__':
             sequence_number = packet.readOctets(6).decode()
             print(clearLine + 'audio -> /dev/null (%d bytes) (seqno %d) (%10f dB) (%.3f us)' % (
                 len(packet), int(sequence_number, 10), lsnr, latency_us))
-        Thread(target=packetSource, daemon=True).start()
+        threading.Thread(target=packetSource, daemon=True).start()
         tunnels = ()
     else:
-        import binascii
-        import utun
-        import lowpan
         u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))
         u2 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d2'))
         tunnels = u1, u2

@@ -1,10 +1,10 @@
 import numpy as np
-from collections import namedtuple
-from itertools import islice
+import collections
+import itertools
 from . import kernels
 from .iir import IIRFilter
 
-Channel = namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
+Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
 stereoDelay = .005
 preemphasisOrder = 0
@@ -276,7 +276,7 @@ class OneShotDecoder:
                 return
         if j_valid < self.length_symbols + 1:
             return
-        syms = np.array(list(islice(self.syms, self.length_symbols)))
+        syms = np.array(list(itertools.islice(self.syms, self.length_symbols)))
         demapped_bits = self.rate.demap(syms, self.dispersion).reshape(-1, self.Ncbps)
         deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, True)
         llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
