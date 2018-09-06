@@ -1,7 +1,10 @@
-import numpy as np
+import warnings
 import collections
 import itertools
+import queue
+import numpy as np
 from . import kernels
+from ..graph import Output, Input, Block, OverrunWarning
 from .iir import IIRFilter
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
@@ -164,17 +167,6 @@ def estimate_cfo(y, overlap, span):
 def remove_cfo(y, k, theta):
     return y * np.exp(-1j*theta*np.r_[k:k+y.size])
 
-def downconvert(source_queue, channel):
-    i = 0
-    lp = IIRFilter.lowpass(.45/channel.upsample_factor)
-    while True:
-        y = source_queue.get()
-        if y is None:
-            break
-        smoothed = lp(y * np.exp(-1j*2*np.pi*channel.Fc/channel.Fs * np.r_[i:i+y.size]))
-        yield smoothed[-i%channel.upsample_factor::channel.upsample_factor]
-        i += y.size
-
 def train(y):
     i = 0
     theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
@@ -287,38 +279,57 @@ class OneShotDecoder:
         output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
         self.result = output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/self.dispersion)
 
-class Decoder:
-    def __init__(self, source_queue, channel):
-        self.source_queue = source_queue
+class IEEE80211aDecoderBlock(Block):
+    inputs = [Input(('nChannelsPerFrame',))]
+    outputs = [Output(np.uint8, ())]
+
+    def __init__(self, channel):
+        super().__init__()
         self.channel = channel
-    def __iter__(self):
-        autocorrelator = Autocorrelator()
-        peakDetector = PeakDetector(25)
-        lookback = deque()
-        decoders = []
-        k_current = 0
-        k_lookback = 0
-        for sequence in downconvert(self.source_queue, self.channel):
-            autocorrelator.feed(sequence)
-            for y in autocorrelator:
-                peakDetector.feed(y)
-            for peak in peakDetector:
+        self.autocorrelator = Autocorrelator()
+        self.peakDetector = PeakDetector(25)
+        self.decoders = []
+        self.lookback = collections.deque()
+        self.k_current = 0
+        self.k_lookback = 0
+        self.lp = IIRFilter.lowpass(.45/channel.upsample_factor)
+        self.i = 0
+
+    def process(self):
+        channel = self.channel
+        Omega = 2*np.pi*channel.Fc/channel.Fs
+        upsample_factor = channel.upsample_factor
+        while True:
+            try:
+                y, inputTime, now = self.input_queues[0].get_nowait()
+            except queue.Empty:
+                break
+            nFrames = y.shape[0]
+            y = self.lp(y * np.exp(-1j*Omega * np.r_[self.i:self.i+nFrames])[:,None])
+            y = y[-self.i%channel.upsample_factor::channel.upsample_factor]
+            self.i += nFrames
+            self.autocorrelator.feed(y)
+            for corr in self.autocorrelator:
+                self.peakDetector.feed(corr)
+            for peak in self.peakDetector:
                 d = OneShotDecoder(peak * N_sts_period + 16)
-                k = k_lookback
-                for y in lookback:
-                    d.feed(y, k)
-                    k += y.size
-                decoders.append(d)
-            lookback.append(sequence)
-            for d in decoders:
-                d.feed(sequence, k_current)
+                k = self.k_lookback
+                for y_old in self.lookback:
+                    d.feed(y_old, k)
+                    k += y_old.shape[0]
+                self.decoders.append(d)
+            self.lookback.append(y)
+            for d in self.decoders:
+                d.feed(y, self.k_current)
                 if d.result is not None:
                     if d.result:
                         yield d.result
-                    decoders.remove(d)
-            k_current += sequence.size
-            while lookback and k_lookback+lookback[0].size < k_current - 1024:
-                k_lookback += lookback.popleft().size
+                    self.decoders.remove(d)
+            self.k_current += y.shape[0]
+            while self.lookback:
+                if self.k_lookback + self.lookback[0].shape[0] >= self.k_current - 1024:
+                    break
+                self.k_lookback += self.lookback.popleft().shape[0]
 
 def subcarriersFromBits(bits, rate, scramblerState):
     Ncbps = Nsc * rate.Nbpsc
@@ -332,21 +343,27 @@ def subcarriersFromBits(bits, rate, scramblerState):
     grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
     return rate.symbols[grouped].reshape(-1, Nsc)
 
-class Encoder:
-    def __init__(self, source_queue, channel):
-        self.source_queue = source_queue
+class IEEE80211aEncoderBlock(Block):
+    inputs = [Input(())]
+    outputs = [Output(np.float32, ('nChannelsPerFrame',))]
+
+    def __init__(self, channel, nChannelsPerFrame=2):
+        super().__init__()
         self.channel = channel
-    def __iter__(self):
-        channel = self.channel
         cutoff = (Nsc_used/2 + .5)/nfft
-        lp1 = IIRFilter.lowpass(cutoff/channel.upsample_factor)
-        lp2 = lp1.copy()
+        self.lp1 = IIRFilter.lowpass(cutoff/channel.upsample_factor)
+        self.lp2 = self.lp1.copy()
+        self.k = 0 # LO phase
+        self.nChannelsPerFrame = 2
+
+    def process(self):
+        channel = self.channel
         baseRate = rates[0xb]
-        k = 0
         while True:
-            octets = self.source_queue.get()
-            if octets is None:
-               break
+            try:
+                octets = self.input_queues[0].get_nowait()
+            except queue.Empty:
+                break
             # prepare header and payload bits
             rateEncoding = 0xb
             rate = rates[rateEncoding]
@@ -368,6 +385,7 @@ class Encoder:
             lts_time = np.tile(np.fft.ifft(lts_freq), ts_tile_shape)[-ncp*ts_reps%nfft:-nfft+1]
             symbols  = np.tile(np.fft.ifft(symbols ), symbols_tile_shape)[:,-ncp%nfft:-nfft+1]
             # temporal smoothing
+            # XXX need more than one sample of overlap; depends on oversampling
             subsequences = [sts_time, lts_time] + list(symbols)
             output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, complex)
             i = 0
@@ -380,11 +398,11 @@ class Encoder:
             output = np.vstack((output, np.zeros((channel.upsample_factor-1,
                                                   output.size), output.dtype)))
             output = output.T.flatten()*channel.upsample_factor
-            output = lp2(lp1(np.r_[np.zeros(200), output, np.zeros(200)]))
+            output = self.lp2(self.lp1(np.r_[np.zeros(200), output, np.zeros(200)]))
             # modulation and pre-emphasis
             Omega = 2*np.pi*channel.Fc/channel.Fs
-            output = (output * np.exp(1j* Omega * np.r_[k:k+output.size])).real
-            k += output.size
+            output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.size])).real
+            self.k += output.size
             for i in range(preemphasisOrder):
                 output = np.diff(np.r_[output,0])
             output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
@@ -392,4 +410,8 @@ class Encoder:
             # stereo beamforming reduction
             delay = np.zeros(int(stereoDelay*channel.Fs))
             pause = np.zeros(int(gap*channel.Fs))
-            yield np.vstack((np.r_[delay, output, pause], np.r_[output, delay, pause])).T
+            frames = np.vstack((np.r_[delay, output, pause], np.r_[output, delay, pause])).T
+            try:
+                self.output_queues[0].put_nowait(frames)
+            except queue.Full:
+                warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)

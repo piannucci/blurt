@@ -58,22 +58,23 @@ class CSMAOutStreamAdapter(IOStream):
         return self.stream.outDone()
 
 def findMicrophone():
-    for dev in AudioSystemObject[kAudioHardwarePropertyDevices,kAudioObjectPropertyScopeInput]:
-        if dev[kAudioDevicePropertyTransportType].value != kAudioDeviceTransportTypeBuiltIn.value:
+    for dev in AH.AudioSystemObject[AH.kAudioHardwarePropertyDevices,AH.kAudioObjectPropertyScopeInput]:
+        if dev[AH.kAudioDevicePropertyTransportType].value != AH.kAudioDeviceTransportTypeBuiltIn.value:
             continue
-        for stream in dev[kAudioDevicePropertyStreams,kAudioObjectPropertyScopeInput]:
-            if stream[kAudioStreamPropertyDirection].value == 1 and \
-               stream[kAudioStreamPropertyTerminalType].value == 513: # INPUT_MICROPHONE from IOAudioTypes.h
+        for stream in dev[AH.kAudioDevicePropertyStreams,AH.kAudioObjectPropertyScopeInput]:
+            if stream[AH.kAudioStreamPropertyDirection].value == 1 and \
+               stream[AH.kAudioStreamPropertyTerminalType].value == 513: # INPUT_MICROPHONE from IOAudioTypes.h
                 break
         else:
             continue
         return dev
+    raise Exception('Microphone not found')
 
 def findInputLevelControl(device):
-    for c in device[kAudioObjectPropertyControlList]:
-        if c[kAudioControlPropertyScope].value != kAudioObjectPropertyScopeInput.value:
+    for c in device[AH.kAudioObjectPropertyControlList]:
+        if c[AH.kAudioControlPropertyScope].value != AH.kAudioObjectPropertyScopeInput.value:
             continue
-        if c.classID != kAudioVolumeControlClassID.value:
+        if c.classID != AH.kAudioVolumeControlClassID.value:
             continue
         return c
 

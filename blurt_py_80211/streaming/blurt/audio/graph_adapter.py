@@ -9,6 +9,10 @@ class InStream_SourceBlock(IOStream, Block):
     inputs = []
     outputs = [Output(typing.Tuple[np.ndarray, int, int], ('nChannelsPerFrame',))]
 
+    def __init__(self, nChannelsPerFrame):
+        super().__init__()
+        self.nChannelsPerFrame = nChannelsPerFrame
+
     # IOStream methods
 
     def write(self, frames, inputTime, now):

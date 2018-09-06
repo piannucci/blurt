@@ -1,9 +1,8 @@
 #!/usr/bin/env python3.7
-import sys
 import os
 import queue
 import itertools
-import threading
+import time
 import numpy as np
 import binascii
 from .net import utun
@@ -11,58 +10,22 @@ from .mac import lowpan
 from .graph import Graph
 from .graph.tee import Arbiter
 from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter, InStream_SourceBlock, OutStream_SinkBlock
+from .audio import AudioHardware as AH
 from .net.graph_adapter import TunnelSink, TunnelSource
-from .mac.graph_adapter import PacketDispatchBlock
+from .mac.graph_adapter import PacketDispatchBlock, FragmentationBlock, ReassemblyBlock
 from .phy.ieee80211a import Channel, IEEE80211aDecoderBlock, IEEE80211aEncoderBlock
 
 ############################ Parameters ############################
 
-bypassAudio = False
-bypassPHY = False
-bypassLoWPAN = False
-
 mtu = 76
-_channel = phy.Channel(48e3, 17.0e3, 8)
+_channel = Channel(48e3, 17.0e3, 8)
 audioFrameSize = 256
 vuThresh = 0
 
 ############################ Audio ############################
 
-class PollableQueue(queue.Queue):
-    def __init__(self, maxsize=0):
-        super().__init__(maxsize)
-        rd, wr = os.pipe()
-        self.pipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
-    def fileno(self):
-        return self.pipe[0].fileno()
-    def put(self, item, block=True, timeout=None):
-        super().put(item, block, timeout)
-        self.pipe[1].write(b'\0')
-        self.pipe[1].flush()
-    def get_nowait(self):
-        item = self.get_nowait()
-        self.pipe[0].read(1)
-        return item
-
-class PollableTransceiver:
-    def __init__(self):
-        self.packet_in_queue = PollableQueue()
-    def start(self):
-        pass
-    def stop(self):
-        pass
-    def read(self):
-        try:
-            return self.packet_in_queue.get_nowait()
-        except queue.Empty:
-            return None
-    def fileno(self):
-        return self.packet_in_queue.fileno()
-    def write(self, buf):
-        self.packet_in_queue.put(buf)
-
-class BlurtTransceiver(PollableTransceiver):
-    def __init__(self, txchannel, rxchannel, rate=0):
+class BlurtTransceiver:
+    def __init__(self, utun_by_ll_addr, txchannel, rxchannel, rate=0):
         super().__init__()
         self.packet_out_queue = queue.Queue(1)
         self.txchannel = txchannel
@@ -74,16 +37,17 @@ class BlurtTransceiver(PollableTransceiver):
             self.ios = IOSession()
             self.ios.addDefaultInputDevice()
             self.ios.addDefaultOutputDevice()
-            self.ios.negotiateFormat(kAudioObjectPropertyScopeOutput,
+            self.ios.negotiateFormat(AH.kAudioObjectPropertyScopeOutput,
                 minimumSampleRate=txchannel.Fs, maximumSampleRate=txchannel.Fs, outBufSize=audioFrameSize)
-            self.ios.negotiateFormat(kAudioObjectPropertyScopeInput,
+            self.ios.negotiateFormat(AH.kAudioObjectPropertyScopeInput,
                 minimumSampleRate=rxchannel.Fs, maximumSampleRate=rxchannel.Fs, inBufSize=audioFrameSize)
-            self.inputChannels = self.ios.nChannelsPerFrame(kAudioObjectPropertyScopeInput)
-            self.outputChannels = self.ios.nChannelsPerFrame(kAudioObjectPropertyScopeOutput)
+            self.inputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeInput)
+            self.outputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeOutput)
             tunnels = list(utun_by_ll_addr.values())
+            utun_other = dict(zip(tunnels, tunnels[::-1]))
             self.agc = MicrophoneAGCAdapter()
             self.csma = CSMAOutStreamAdapter(self.agc, vuThresh, self.outputChannels)
-            self.is_b = InStream_SourceBlock()
+            self.is_b = InStream_SourceBlock(self.inputChannels)
             self.os_b = OutStream_SinkBlock()
             self.decoder_b = IEEE80211aDecoderBlock(rxchannel)
             self.encoder_b = IEEE80211aEncoderBlock(txchannel)
@@ -118,63 +82,37 @@ class BlurtTransceiver(PollableTransceiver):
             self.g = Graph(sources)
 
         # TODO
-        # IEEE80211aDecoderBlock, IEEE80211aEncoderBlock
-        phy.Decoder(self.inQueue, rxchannel)
-        phy.Encoder(self.packet_out_queue, txchannel)
         # latency_us = (ios.inLatency+ios.outLatency) * ios.nsPerAbsoluteTick*1e-3
         # move IIR filters to end of transmit chain
 
     def start(self):
         self.ios.start()
-        self.g.run()
+        self.g.start()
 
     def stop(self):
         self.ios.stop()
-        self.ios = None
+        self.g.stop()
 
 if __name__ == '__main__':
-    xcvr = BlurtTransceiver(_channel, _channel) if not bypassPHY else PollableTransceiver()
-    rlist = [xcvr]
-    realTunnel = '--utun' in sys.argv
-    if not realTunnel:
-        def packetSource():
-            for i in itertools.count():
-                xcvr.write(np.r_[np.random.randint(ord('A'),ord('Z'),26),
-                                 np.frombuffer(('%06d' % i).encode(), np.uint8)])
-        def packetSink(packet, lsnr, latency_us):
-            random_letters = packet.readOctets(26).decode()
-            sequence_number = packet.readOctets(6).decode()
-            print(clearLine + 'audio -> /dev/null (%d bytes) (seqno %d) (%10f dB) (%.3f us)' % (
-                len(packet), int(sequence_number, 10), lsnr, latency_us))
-        threading.Thread(target=packetSource, daemon=True).start()
-        tunnels = ()
-    else:
-        u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))
-        u2 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d2'))
-        tunnels = u1, u2
-        rlist.extend(tunnels)
-        class BlurtPDB(lowpan.PDB):
-            def __init__(self, utun: utun.utun):
-                super().__init__()
-                self.utun = utun
-                self.ll_mtu = utun.mtu - 12 # room for src, dst link-layer address
-            def dispatchIPv6PDU(self, p: lowpan.Packet):
-                datagram = p.tail()
-                print('lowpan -> utun (%d bytes)' % (len(datagram),))
-                self.utun.write(datagram)
-        u1.pdb = BlurtPDB(u1)
-        u2.pdb = BlurtPDB(u2)
-        def packetSink(packet, lsnr, latency_us):
-            print(clearLine + 'audio -> lowpan (%d bytes) (%10f dB) (%.3f us)' % (len(packet), lsnr, latency_us))
-            utun_by_ll_addr[packet.ll_da].pdb.dispatchFragmentedPDU(packet)
-        utun_other = {u1:u2, u2:u1}
-        utun_by_ll_addr = {u1.ll_addr:u1, u2.ll_addr:u2}
+    u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))
+    u2 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d2'))
+    class BlurtPDB(lowpan.PDB):
+        def __init__(self, utun: utun.utun):
+            super().__init__()
+            self.utun = utun
+            self.ll_mtu = utun.mtu - 12 # room for src, dst link-layer address
+    u1.pdb = BlurtPDB(u1)
+    u2.pdb = BlurtPDB(u2)
+    xcvr = BlurtTransceiver({
+        u1.ll_addr:u1,
+        u2.ll_addr:u2
+    }, _channel, _channel)
     xcvr.start()
     clearLine = '\r\x1b[2K'
     try:
         while True:
             time.sleep(.05)
-            vu = int(max(0, 80 + 10*np.log10(xcvr.stream.vu)))
+            vu = int(max(0, 80 + 10*np.log10(xcvr.agc.vu)))
             bar = [' '] * 100
             bar[:vu] = ['.'] * vu
             bar[vuThresh+80] = '|'

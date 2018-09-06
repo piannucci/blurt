@@ -4,6 +4,7 @@ import ctypes, ctypes.util
 import os
 import subprocess
 import time
+import binascii
 from ..mac import lowpan
 from . import sockio
 
@@ -74,7 +75,7 @@ class utun:
                 ifreq = sockio.ifreq(self.iface.encode(), sockio.ifr_ifru_t(ifru_mtu=mtu))
                 fcntl.ioctl(s, sockio.SIOCSIFMTU, ifreq)
         if ll_addr is not None:
-            self.ifconfig('inet6', linkLocalIPv6(ll_sa))
+            self.ifconfig('inet6', linkLocalIPv6(ll_addr))
         self.ll_addr = ll_addr
         self.fileno = self.fd.fileno
     def ifconfig(self, *args):
@@ -90,7 +91,7 @@ class utun:
         count = os.readv(self.fd.fileno(), [protocol, buf])
         if count < 0:
             raise OSError(errno.value)
-        protocol = socket.ntohl(protocol)
+        protocol = socket.ntohl(protocol.value)
         return bytes(buf[:count-4])
     def __repr__(self):
         return '<utun %s>' % self.iface

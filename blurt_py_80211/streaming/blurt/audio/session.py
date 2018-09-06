@@ -176,7 +176,7 @@ class IOSession:
             self.negotiateFormat(scope)
             result = 0
             for d, s in self.deviceScopes:
-                if s.value == scope:
+                if s == scope:
                     result += self.vfActual[d, scope].mChannelsPerFrame
             return result
 
@@ -328,7 +328,7 @@ def coerceOutputStream(outStream):
     return outStream
 
 def prepareSession(Fs, outDevice, inDevice):
-    ios = Session()
+    ios = IOSession()
     try:
         iter(outDevice)
         outDevices = outDevice

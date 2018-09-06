@@ -10,6 +10,7 @@ class FragmentationBlock(Block):
     outputs = [Output(np.uint8, ())]
 
     def __init__(self, pdb):
+        super().__init__()
         self.pdb = pdb
 
     def process(self):
@@ -22,7 +23,7 @@ class FragmentationBlock(Block):
             try:
                 for f in fragments:
                     print('lowpan -> %d B' % (12+len(f),))
-                    self.output_queues[0].put_nowait(np.frombuffer(ll_sa + ll_da + f, np.uint8))
+                    self.output_queues[0].put_nowait(np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8))
             except queue.Full:
                 warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
 
@@ -39,7 +40,7 @@ class PacketDispatchBlock(Block):
     def process(self):
         while True:
             try:
-                datagram, lsnr = self.input_queues.get_nowait()
+                datagram, lsnr = self.input_queues[0].get_nowait()
             except queue.Empty:
                 break
             ll_sa = datagram[0:6]
@@ -55,6 +56,7 @@ class ReassemblyBlock(Block):
     outputs = [Output(typing.Tuple[Packet, float], ())]
 
     def __init__(self, pdb):
+        super().__init__()
         self.pdb = pdb
         pdb.dispatchIPv6PDU = self.dispatchIPv6PDU
 

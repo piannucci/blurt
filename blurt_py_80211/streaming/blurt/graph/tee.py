@@ -22,7 +22,7 @@ class Tee(Block):
 
 class Arbiter(Block):
     def __init__(self, n, dtype=None):
-        self.inputs = [Input('shape')]
+        self.inputs = [Input('shape') for i in range(n)]
         self.outputs = [Output(dtype, 'shape')]
         super().__init__()
 

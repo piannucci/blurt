@@ -1,3 +1,4 @@
+import os
 import warnings
 import queue
 import threading
@@ -7,8 +8,8 @@ from ..mac.lowpan import Packet
 
 class PollableCondition:
     def __init__(self):
-        rd, wr = pipe()
-        self.pipe = (fdopen(rd, 'rb'), fdopen(wr, 'wb'))
+        rd, wr = os.pipe()
+        self.pipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
     def fileno(self):
         return self.pipe[0].fileno()
     def notify(self):
@@ -26,9 +27,11 @@ class TunnelSource(Block):
         self.utun = utun
         self.cv = PollableCondition()
         self.stopping = False
-        self.thread = threading.Thread(self.thread_proc)
-        self.thread.start()
+        self.thread = threading.Thread(target=self.thread_proc)
         self.ll_da = ll_da
+
+    def start(self):
+        self.thread.start()
 
     def thread_proc(self):
         while True:
@@ -36,7 +39,7 @@ class TunnelSource(Block):
                 if fd is self.utun:
                     datagram = self.utun.read()
                     print('%s -> %d B' % (self.utun, len(datagram)))
-                    packet = lowpan.Packet(self.utun.ll_addr, self.ll_da, datagram)
+                    packet = Packet(self.utun.ll_addr, self.ll_da, datagram)
                     try:
                         self.output_queues[0].put_nowait(packet)
                         self.notify()
@@ -64,7 +67,7 @@ class TunnelSink(Block):
     def process(self):
         while True:
             try:
-                packet = self.input_queues.get_nowait()
+                packet = self.input_queues[0].get_nowait()
             except queue.Empty:
                 break
             datagram = packet.tail()
