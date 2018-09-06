@@ -9,14 +9,17 @@ from ..mac.lowpan import Packet
 class PollableCondition:
     def __init__(self):
         rd, wr = os.pipe()
-        self.pipe = (os.fdopen(rd, 'rb'), os.fdopen(wr, 'wb'))
+        self.pipe = (os.fdopen(rd, 'rb', buffering=0), os.fdopen(wr, 'wb', buffering=0))
     def fileno(self):
         return self.pipe[0].fileno()
     def notify(self):
         self.pipe[1].write(b'\0')
-        self.pipe[1].flush()
     def wait(self):
         self.pipe[0].read(1)
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        return False
 
 class TunnelSource(Block):
     inputs = []
@@ -26,12 +29,9 @@ class TunnelSource(Block):
         super().__init__()
         self.utun = utun
         self.cv = PollableCondition()
-        self.stopping = False
-        self.thread = threading.Thread(target=self.thread_proc)
         self.ll_da = ll_da
-
-    def start(self):
-        self.thread.start()
+        self.stopping = False
+        self.running = False
 
     def thread_proc(self):
         while True:
@@ -49,9 +49,23 @@ class TunnelSource(Block):
                     if self.stopping:
                         return
 
+    def start(self):
+        with self.cv:
+            if self.running:
+                return
+            self.thread = threading.Thread(target=self.thread_proc)
+            self.running = True
+            self.thread.start()
+
     def stop(self):
-        self.stopping = True
-        self.cv.notify()
+        with self.cv:
+            if self.stopping or not self.running:
+                return
+            self.stopping = True
+            self.cv.notify()
+            self.thread.join()
+            self.running = False
+            self.stopping = False
 
     def process(self):
         pass

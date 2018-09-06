@@ -641,19 +641,6 @@ class AudioObject:
             return '<%s: %d %s>' % (self.className, oid, repr(name))
         else:
             return '<%s: %d>' % (self.className, oid)
-    def start(self, inProc=None, ioRequestedStartTime=None, inFlags=None):
-        assert self.classID == kAudioDeviceClassID.value
-        if inProc is None:
-            trap(AudioDeviceStart, self.objectID, None)
-        elif ioRequestedStartTime is None and inFlags is None:
-            trap(AudioDeviceStart, self.objectID, inProc)
-        else:
-            if inFlags is None:
-                inFlags = 0
-            trap(AudioDeviceStartAtTime, self.objectID, inProc, ioRequestedStartTime, inFlags)
-    def stop(self, inProc=None):
-        assert self.classID == kAudioDeviceClassID.value
-        trap(AudioDeviceStop, self.objectID, inProc)
     def __eq__(self, other):
         if not isinstance(other, AudioObject):
             return False

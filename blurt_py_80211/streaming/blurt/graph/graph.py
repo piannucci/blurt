@@ -50,6 +50,9 @@ class Block:
     def start(self):            # take any special actions for graph start
         pass
 
+    def stop(self):             # take any special actions for graph stop
+        pass
+
 class Graph:
     def __init__(self, sourceBlocks):
         # check that source blocks have no inputs
@@ -154,6 +157,8 @@ class Graph:
             with self.cv:
                 while True:
                     if self.stopping:
+                        for b in self.allBlocks:
+                            b.stop()
                         return
                     elif self.notified:
                         break

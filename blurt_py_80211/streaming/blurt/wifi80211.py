@@ -9,7 +9,8 @@ from .net import utun
 from .mac import lowpan
 from .graph import Graph
 from .graph.tee import Arbiter
-from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter, InStream_SourceBlock, OutStream_SinkBlock
+from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter
+from .audio import InStream_SourceBlock, OutStream_SinkBlock, IOSession_Block
 from .audio import AudioHardware as AH
 from .net.graph_adapter import TunnelSink, TunnelSource
 from .mac.graph_adapter import PacketDispatchBlock, FragmentationBlock, ReassemblyBlock
@@ -41,13 +42,13 @@ class BlurtTransceiver:
                 minimumSampleRate=txchannel.Fs, maximumSampleRate=txchannel.Fs, outBufSize=audioFrameSize)
             self.ios.negotiateFormat(AH.kAudioObjectPropertyScopeInput,
                 minimumSampleRate=rxchannel.Fs, maximumSampleRate=rxchannel.Fs, inBufSize=audioFrameSize)
-            self.inputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeInput)
+            self.ios_b = IOSession_Block(self.ios)
             self.outputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeOutput)
             tunnels = list(utun_by_ll_addr.values())
             utun_other = dict(zip(tunnels, tunnels[::-1]))
             self.agc = MicrophoneAGCAdapter()
             self.csma = CSMAOutStreamAdapter(self.agc, vuThresh, self.outputChannels)
-            self.is_b = InStream_SourceBlock(self.inputChannels)
+            self.is_b = InStream_SourceBlock(self.ios)
             self.os_b = OutStream_SinkBlock()
             self.decoder_b = IEEE80211aDecoderBlock(rxchannel)
             self.encoder_b = IEEE80211aEncoderBlock(txchannel)
@@ -60,7 +61,7 @@ class BlurtTransceiver:
 
         if 1:
             # assemble graph
-            sources = [self.is_b] + self.tunnelSources
+            sources = [self.is_b, self.ios_b] + self.tunnelSources
             if 1:
                 # ios -> agc -> is_b -> decoder_b -> dispatch_b -> reassembly_b -> sink_b
                 self.ios.inStream = self.agc
@@ -86,11 +87,9 @@ class BlurtTransceiver:
         # move IIR filters to end of transmit chain
 
     def start(self):
-        self.ios.start()
         self.g.start()
 
     def stop(self):
-        self.ios.stop()
         self.g.stop()
 
 if __name__ == '__main__':

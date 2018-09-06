@@ -218,10 +218,6 @@ class IOSession:
                     self.ioProcException = InterruptedError()
             if self.ioProcException:
                 raise self.ioProcException
-            if hasattr(self.inStream, 'stop'):
-                self.inStream.stop()
-            if hasattr(self.outStream, 'stop'):
-                self.outStream.stop()
             return self.inStream
 
     def stopIO(self):

@@ -2,6 +2,7 @@
 import warnings
 import numpy as np
 import typing
+from . import AudioHardware as AH
 from ..graph import Output, Input, Block, OverrunWarning, UnderrunWarning
 from .stream import IOStream
 
@@ -9,9 +10,10 @@ class InStream_SourceBlock(IOStream, Block):
     inputs = []
     outputs = [Output(typing.Tuple[np.ndarray, int, int], ('nChannelsPerFrame',))]
 
-    def __init__(self, nChannelsPerFrame):
+    def __init__(self, ios):
+        self.ios = ios
+        self.nChannelsPerFrame = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeInput)
         super().__init__()
-        self.nChannelsPerFrame = nChannelsPerFrame
 
     # IOStream methods
 
@@ -26,14 +28,6 @@ class InStream_SourceBlock(IOStream, Block):
 
     def inDone(self):
         return self.output_queues[0].closed
-
-    def stop(self):
-        self.closeOutput()
-
-    # Block methods
-
-    def process(self):
-        pass
 
 class OutStream_SinkBlock(IOStream, Block):
     inputs = [Input(('nChannelsPerFrame',))]
@@ -77,10 +71,16 @@ class OutStream_SinkBlock(IOStream, Block):
     def outDone(self):
         return self.input_queues[0].closed
 
+class IOSession_Block(Block):
+    inputs = []
+    outputs = []
+
+    def __init__(self, ios):
+        super().__init__()
+        self.ios = ios
+
+    def start(self):
+        self.ios.start()
+
     def stop(self):
-        self.closeInput()
-
-    # Block methods
-
-    def process(self):
-        pass
+        self.ios.stop()
