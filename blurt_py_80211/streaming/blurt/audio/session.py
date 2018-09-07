@@ -281,6 +281,8 @@ class IOSession:
                 self.stopIO()
         except Exception as e:
             with self.cv:
+                import traceback
+                traceback.print_exc()
                 self.ioProcException = e
                 self.stopIO()
         return 0

@@ -53,6 +53,17 @@ class Block:
     def stop(self):             # take any special actions for graph stop
         pass
 
+    def input(self):
+        while not any(iq.empty() for iq in self.input_queues):
+            yield tuple(iq.get_nowait() for iq in self.input_queues)
+
+    def output(self, items):
+        if not any(iq.full() for iq in self.output_queues):
+            for oq, it in zip(self.output_queues, items):
+                oq.put_nowait(it)
+        else:
+            warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+
 class Graph:
     def __init__(self, sourceBlocks):
         # check that source blocks have no inputs

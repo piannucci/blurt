@@ -67,9 +67,6 @@ class TunnelSource(Block):
             self.running = False
             self.stopping = False
 
-    def process(self):
-        pass
-
 class TunnelSink(Block):
     inputs = [Input(())]
     outputs = []
@@ -79,11 +76,7 @@ class TunnelSink(Block):
         self.utun = utun
 
     def process(self):
-        while True:
-            try:
-                packet = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for packet, in self.input():
             datagram = packet.tail()
             print('%5d B -> %s' % (len(datagram), self.utun))
             self.utun.write(datagram)

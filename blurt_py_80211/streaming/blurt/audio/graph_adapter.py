@@ -2,6 +2,7 @@
 import warnings
 import numpy as np
 import typing
+import queue
 from . import AudioHardware as AH
 from ..graph import Output, Input, Block, OverrunWarning, UnderrunWarning
 from .stream import IOStream
@@ -20,11 +21,8 @@ class InStream_SourceBlock(IOStream, Block):
     def write(self, frames, inputTime, now):
         if self.output_queues[0].closed:
             return
-        try:
-            self.output_queues[0].put_nowait((frames, inputTime, now))
-            self.notify()
-        except queue.Full:
-            warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+        self.output((frames, inputTime, now))
+        self.notify()
 
     def inDone(self):
         return self.output_queues[0].closed
@@ -84,3 +82,12 @@ class IOSession_Block(Block):
 
     def stop(self):
         self.ios.stop()
+
+# software loopback
+class AudioBypass_Block(Block):
+    inputs = [Input(('nChannelsPerFrame',))]
+    outputs = [Output(typing.Tuple[np.ndarray, int, int], ('nChannelsPerFrame',))]
+
+    def process(self):
+        for frames, in self.input():
+            self.output(((frames, 0, 0),))

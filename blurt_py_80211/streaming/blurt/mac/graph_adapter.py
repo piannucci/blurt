@@ -14,18 +14,11 @@ class FragmentationBlock(Block):
         self.pdb = pdb
 
     def process(self):
-        while True:
-            try:
-                packet = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for packet, in self.input():
             fragments = self.pdb.compressIPv6Datagram(packet)
-            try:
-                for f in fragments:
-                    print('lowpan -> %d B' % (12+len(f),))
-                    self.output_queues[0].put_nowait(np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8))
-            except queue.Full:
-                warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+            for f in fragments:
+                print('lowpan -> %d B' % (12+len(f),))
+                self.output((np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8),))
 
 class PacketDispatchBlock(Block):
     inputs = [Input(())]
@@ -38,11 +31,7 @@ class PacketDispatchBlock(Block):
             self.op_by_ll_addr[ll_addr] = i
 
     def process(self):
-        while True:
-            try:
-                datagram, lsnr = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for (datagram, lsnr), in self.input():
             ll_sa = datagram[0:6]
             ll_da = datagram[6:12]
             packet = Packet(ll_sa, ll_da, datagram[12:])
@@ -61,16 +50,9 @@ class ReassemblyBlock(Block):
         pdb.dispatchIPv6PDU = self.dispatchIPv6PDU
 
     def process(self):
-        while True:
-            try:
-                packet, lsnr = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for (packet, lsnr), in self.input():
             print('audio -> lowpan (%d bytes) (%10f dB)' % (len(packet), lsnr))
             self.pdb.dispatchFragmentedPDU(packet)
 
     def dispatchIPv6PDU(self, packet):
-        try:
-            self.output_queues[0].put_nowait(packet)
-        except queue.Full:
-            warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+        self.output((packet,))

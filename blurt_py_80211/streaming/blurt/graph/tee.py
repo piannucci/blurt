@@ -9,16 +9,8 @@ class Tee(Block):
         super().__init__()
 
     def process(self):
-        while True:
-            try:
-                item = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
-            for oq in self.output_queues:
-                try:
-                    oq.put_nowait(item)
-                except queue.Full:
-                    warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+        for item, in self.input():
+            self.output([item for oq in self.output_queues])
 
 class Arbiter(Block):
     def __init__(self, n, dtype=None):
@@ -27,16 +19,24 @@ class Arbiter(Block):
         super().__init__()
 
     def process(self):
-        done = True
-        while not done:
-            done = True
+        while True:
             for iq in self.input_queues:
                 try:
                     item = iq.get_nowait()
                 except queue.Empty:
                     continue
-                done = False
-                try:
-                    self.output_queues[0].put_nowait(item)
-                except queue.Full:
-                    warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+                self.output((item,))
+                break
+            else:
+                return
+
+class LambdaBlock(Block):
+    def __init__(self, idtype, ishape, odtype, oshape, fn):
+        self.inputs = [Input(ishape)]
+        self.outputs = [Output(odtype, oshape)]
+        self.fn = fn
+        super().__init__()
+
+    def process(self):
+        for item, in self.input():
+            self.output((self.fn(item),))

@@ -1,6 +1,7 @@
 import numpy as np
 from .stream import IOStream
 from . import AudioHardware as AH
+from . import mach_time
 
 class AGCInStreamAdapter(IOStream):
     def __init__(self, target, stream=None):
@@ -30,7 +31,7 @@ class AGCInStreamAdapter(IOStream):
             self.target[AH.kAudioLevelControlPropertyDecibelValue] = self.curLevel
             self.historyTime.append(now)
             self.historyLevel.append(self.curLevel)
-            expirationTime = now - 100e6 / nanosecondsPerAbsoluteTick()
+            expirationTime = now - 100e6 / mach_time.nanosecondsPerAbsoluteTick()
             expirationIndex = np.searchsorted(self.historyTime, expirationTime)
             self.historyTime  = self.historyTime[expirationIndex:]
             self.historyLevel = self.historyLevel[expirationIndex:]
@@ -80,4 +81,4 @@ def findInputLevelControl(device):
 
 class MicrophoneAGCAdapter(AGCInStreamAdapter):
     def __init__(self, stream=None):
-        super().__init__(findInputLevelControl(findMicrophone()), stream=None)
+        super().__init__(findInputLevelControl(findMicrophone()), stream=stream)

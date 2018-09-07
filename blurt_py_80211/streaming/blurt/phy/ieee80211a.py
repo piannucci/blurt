@@ -2,6 +2,7 @@ import warnings
 import collections
 import itertools
 import queue
+import typing
 import numpy as np
 from . import kernels
 from ..graph import Output, Input, Block, OverrunWarning
@@ -281,29 +282,27 @@ class OneShotDecoder:
 
 class IEEE80211aDecoderBlock(Block):
     inputs = [Input(('nChannelsPerFrame',))]
-    outputs = [Output(np.uint8, ())]
+    outputs = [Output(typing.Tuple[np.ndarray, float], ())]
 
     def __init__(self, channel):
         super().__init__()
         self.channel = channel
+
+    def start(self):
         self.autocorrelator = Autocorrelator()
         self.peakDetector = PeakDetector(25)
         self.decoders = []
         self.lookback = collections.deque()
         self.k_current = 0
         self.k_lookback = 0
-        self.lp = IIRFilter.lowpass(.45/channel.upsample_factor)
+        self.lp = IIRFilter.lowpass(.45/self.channel.upsample_factor, shape=(None, self.nChannelsPerFrame), axis=0)
         self.i = 0
 
     def process(self):
         channel = self.channel
         Omega = 2*np.pi*channel.Fc/channel.Fs
         upsample_factor = channel.upsample_factor
-        while True:
-            try:
-                y, inputTime, now = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for (y, inputTime, now), in self.input():
             nFrames = y.shape[0]
             y = self.lp(y * np.exp(-1j*Omega * np.r_[self.i:self.i+nFrames])[:,None])
             y = y[-self.i%channel.upsample_factor::channel.upsample_factor]
@@ -323,7 +322,7 @@ class IEEE80211aDecoderBlock(Block):
                 d.feed(y, self.k_current)
                 if d.result is not None:
                     if d.result:
-                        yield d.result
+                        self.output((d.result,))
                     self.decoders.remove(d)
             self.k_current += y.shape[0]
             while self.lookback:
@@ -350,20 +349,18 @@ class IEEE80211aEncoderBlock(Block):
     def __init__(self, channel, nChannelsPerFrame=2):
         super().__init__()
         self.channel = channel
-        cutoff = (Nsc_used/2 + .5)/nfft
-        self.lp1 = IIRFilter.lowpass(cutoff/channel.upsample_factor)
-        self.lp2 = self.lp1.copy()
-        self.k = 0 # LO phase
         self.nChannelsPerFrame = 2
+
+    def start(self):
+        cutoff = (Nsc_used/2 + .5)/nfft
+        self.k = 0 # LO phase
+        self.lp1 = IIRFilter.lowpass(cutoff/self.channel.upsample_factor)
+        self.lp2 = self.lp1.copy()
 
     def process(self):
         channel = self.channel
         baseRate = rates[0xb]
-        while True:
-            try:
-                octets = self.input_queues[0].get_nowait()
-            except queue.Empty:
-                break
+        for octets, in self.input():
             # prepare header and payload bits
             rateEncoding = 0xb
             rate = rates[rateEncoding]
@@ -411,7 +408,4 @@ class IEEE80211aEncoderBlock(Block):
             delay = np.zeros(int(stereoDelay*channel.Fs))
             pause = np.zeros(int(gap*channel.Fs))
             frames = np.vstack((np.r_[delay, output, pause], np.r_[output, delay, pause])).T
-            try:
-                self.output_queues[0].put_nowait(frames)
-            except queue.Full:
-                warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+            self.output((frames,))

@@ -26,12 +26,10 @@ vuThresh = 0
 ############################ Audio ############################
 
 class BlurtTransceiver:
-    def __init__(self, utun_by_ll_addr, txchannel, rxchannel, rate=0):
+    def __init__(self, utun_by_ll_addr, txchannel, rxchannel):
         super().__init__()
-        self.packet_out_queue = queue.Queue(1)
         self.txchannel = txchannel
         self.rxchannel = rxchannel
-        self.rate = rate
 
         if 1:
             # create blocks and stream processors
