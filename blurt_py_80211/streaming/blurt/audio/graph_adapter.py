@@ -4,7 +4,7 @@ import numpy as np
 import typing
 import queue
 from . import AudioHardware as AH
-from ..graph import Output, Input, Block, OverrunWarning, UnderrunWarning
+from ..graph import Output, Input, Block, UnderrunWarning
 from .stream import IOStream
 
 class InStream_SourceBlock(IOStream, Block):

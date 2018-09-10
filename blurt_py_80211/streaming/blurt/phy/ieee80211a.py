@@ -1,12 +1,13 @@
-import warnings
 import collections
 import itertools
-import queue
 import typing
 import numpy as np
-from . import kernels
-from ..graph import Output, Input, Block, OverrunWarning
+from ..graph import Output, Input, Block
 from .iir import IIRFilter
+from . import cc
+from .interleaver import interleave
+from .crc import CRC32_802_11_FCS as FCS
+from . import scrambler
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
@@ -27,81 +28,6 @@ dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
 pilotSubcarriers = np.array([-21,-7,7,21])
 pilotTemplate = np.array([1,1,1,-1])
 
-############################ Scrambler ############################
-
-scrambler = np.zeros((128,127), np.uint8)
-s = np.arange(128, dtype=np.uint8)
-for i in range(127):
-    s = np.uint8((s << 1) ^ (1 & ((s >> 3) ^ (s >> 6))))
-    scrambler[:,i] = s & 1
-
-scrambler_state_lookup = (scrambler[:,:7] << np.arange(6,-1,-1)).sum(1).argsort()
-
-############################ CRC ############################
-
-def CRC(x):
-    a = np.r_[np.r_[np.zeros(x.size, int), np.ones(32, int)] ^ \
-              np.r_[np.zeros(32, int), x[::-1]], np.zeros(-x.size%16, int)]
-    a = (a.reshape(-1, 16) << np.arange(16)).sum(1)[::-1]
-    return kernels.crc(a, lut)
-
-lut = np.arange(1<<16, dtype=np.uint64) << 32
-for i in range(47,31,-1):
-    lut ^= (0x104c11db7 << (i-32)) * ((lut >> i) & 1)
-lut = lut.astype(np.uint32)
-
-############################ CC ############################
-
-def mul(a, b):
-    return np.bitwise_xor.reduce(a[:,None,None] * (b[:,None] & (1<<np.arange(7))), -1)
-
-output_map = 1 & (mul(np.array([109, 79]), np.arange(128)) >> 6)
-output_map_soft = output_map * 2 - 1
-
-def encode(y):
-    return kernels.encode(y, output_map)
-
-def decode(llr):
-    N = llr.size//2
-    return kernels.decode(N, (llr[:N*2].reshape(-1,2,1)*output_map_soft).sum(1))
-
-############################ Rates ############################
-
-class Rate:
-    def __init__(self, Nbpsc, ratio):
-        self.Nbpsc = Nbpsc
-        if Nbpsc == 1:
-            self.symbols = np.array([-1,1])
-        else:
-            n = Nbpsc//2
-            grayRevCode = sum(((np.arange(1<<n) >> i) & 1) << (n-1-i) for i in range(n))
-            grayRevCode ^= grayRevCode >> 1
-            grayRevCode ^= grayRevCode >> 2
-            symbols = (2*grayRevCode+1-(1<<n)) * (1.5 / ((1<<Nbpsc) - 1))**.5
-            self.symbols = np.tile(symbols, 1<<n) + 1j*np.repeat(symbols, 1<<n)
-        self.puncturingMatrix = np.bool_({(1,2):[1,1], (2,3):[1,1,1,0], (3,4):[1,1,1,0,0,1],
-                                          (5,6):[1,1,1,0,0,1,1,0,0,1]}[ratio])
-        self.ratio = ratio
-    def depuncture(self, y):
-        output_size = (y.size + self.ratio[1]-1) // self.ratio[1] * self.ratio[0] * 2
-        output = np.zeros(output_size, y.dtype)
-        output[np.resize(self.puncturingMatrix, output.size)] = y
-        return output
-    def demap(self, y, dispersion):
-        n = self.Nbpsc
-        squared_distance = np.abs(self.symbols - y.flatten()[:,None])**2
-        ll = -np.log(np.pi * dispersion) - squared_distance / dispersion
-        ll -= np.logaddexp.reduce(ll, 1)[:,None]
-        j = np.arange(1<<n)
-        llr = np.zeros((y.size, n), int)
-        for i in range(n):
-            llr[:,i] = 10 * (np.logaddexp.reduce(ll[:,0 != (j & (1<<i))], 1) - \
-                             np.logaddexp.reduce(ll[:,0 == (j & (1<<i))], 1))
-        return np.clip(llr, -1e4, 1e4)
-
-rates = {0xb: Rate(1, (1,2)), 0xf: Rate(2, (1,2)), 0xa: Rate(2, (3,4)), 0xe: Rate(4, (1,2)),
-         0x9: Rate(4, (3,4)), 0xd: Rate(6, (2,3)), 0x8: Rate(6, (3,4)), 0xc: Rate(6, (5,6))}
-
 ############################ OFDM ############################
 
 Nsc = dataSubcarriers.size
@@ -110,17 +36,6 @@ N_sts_period = nfft // 4
 N_sts_samples = ts_reps * (ncp + nfft)
 N_sts_reps = N_sts_samples // N_sts_period
 N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
-
-def interleave(input, Ncbps, Nbpsc, reverse=False):
-    s = max(Nbpsc//2, 1)
-    j = np.arange(Ncbps)
-    if reverse:
-        i = (Ncbps//16) * (j%16) + (j//16)
-        p = s*(i//s) + (i + Ncbps - (16*i//Ncbps)) % s
-    else:
-        i = s*(j//s) + (j + (16*j//Ncbps)) % s
-        p = 16*i - (Ncbps - 1) * (16*i//Ncbps)
-    return input[...,p].flatten()
 
 class Autocorrelator:
     def __init__(self, nChannelsPerFrame):
@@ -208,7 +123,7 @@ def decodeOFDM(syms, i, training_data):
     for j, y in enumerate(syms):
         sym = np.einsum('ijk,ik->ij', G, np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo), axis=0))[:,0]
         i += nfft+ncp
-        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * (1.-2.*scrambler[0x7F,j%127])
+        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * float(1-2*scrambler.pilot_sequence[j%127])
         re,im,theta = x[:,0]
         c, s = np.cos(theta), np.sin(theta)
         F = np.array([[c, -s, -s*re - c*im], [s, c, c*re - s*im], [0, 0, 1]])
@@ -254,15 +169,15 @@ class OneShotDecoder:
         if self.j == 0:
             if j_valid > 0:
                 lsig = next(self.syms)
-                SIGNAL_bits = decode(interleave(lsig.real, Nsc, 1, True))
+                SIGNAL_bits = cc.decode(interleave(lsig.real, Nsc, 1, reverse=True))
                 if not int(SIGNAL_bits.sum()) & 1 == 0:
                     self.result = ()
                     return
                 SIGNAL_bits = (SIGNAL_bits[:18] << np.arange(18)).sum()
-                if not SIGNAL_bits & 0xF in rates:
+                if not SIGNAL_bits & 0xF in cc.l_rates:
                     self.result = ()
                     return
-                self.rate = rates[SIGNAL_bits & 0xF]
+                self.rate = cc.l_rates[SIGNAL_bits & 0xF]
                 length_octets = (SIGNAL_bits >> 5) & 0xFFF
                 if length_octets > self.mtu:
                     self.result = ()
@@ -270,7 +185,7 @@ class OneShotDecoder:
                 self.length_coded_bits = (length_octets*8 + 16+6)*2
                 self.Ncbps = Nsc * self.rate.Nbpsc
                 self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
-                SIGNAL_coded_bits = interleave(encode((SIGNAL_bits >> np.arange(24)) & 1), Nsc, 1)
+                SIGNAL_coded_bits = interleave(cc.encode((SIGNAL_bits >> np.arange(24)) & 1), Nsc, 1)
                 self.dispersion = (lsig-(SIGNAL_coded_bits*2.-1.)).var()
                 self.j = 1
             else:
@@ -278,13 +193,11 @@ class OneShotDecoder:
         if j_valid < self.length_symbols + 1:
             return
         syms = np.array(list(itertools.islice(self.syms, self.length_symbols)))
-        demapped_bits = self.rate.demap(syms, self.dispersion).reshape(-1, self.Ncbps)
-        deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, True)
+        demapped_bits = self.rate.demap(syms, self.dispersion)
+        deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, reverse=True)
         llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
-        decoded_bits = decode(llr)
-        scrambler_state = scrambler_state_lookup[(decoded_bits[:7] << np.arange(6,-1,-1)).sum()]
-        output_bits = (decoded_bits ^ np.resize(scrambler[scrambler_state], llr.size//2))[16:-6]
-        if not CRC(output_bits) == 0xc704dd7b:
+        output_bits = scrambler.descramble(cc.decode(llr))[16:-6]
+        if not FCS.check(output_bits):
             self.result = ()
             return
         output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
@@ -341,14 +254,14 @@ class IEEE80211aDecoderBlock(Block):
                 self.k_lookback += self.lookback.popleft().shape[0]
 
 def subcarriersFromBits(bits, rate, scramblerState):
+    # adds tail bits and any needed padding to form a full symbol; does not add SERVICE
     Ncbps = Nsc * rate.Nbpsc
     Nbps = Ncbps * rate.ratio[0] // rate.ratio[1]
     pad_bits = 6 + -(bits.size + 6) % Nbps
-    scrambled = np.r_[bits, np.zeros(pad_bits, int)] ^ \
-                np.resize(scrambler[scramblerState], bits.size + pad_bits)
+    scrambled = scrambler.scramble(np.r_[bits, np.zeros(pad_bits, int)], scramblerState)
     scrambled[bits.size:bits.size+6] = 0
-    punctured = encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
-    interleaved = interleave(punctured.reshape(-1, Ncbps), Nsc * rate.Nbpsc, rate.Nbpsc)
+    punctured = cc.encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
+    interleaved = interleave(punctured, Nsc * rate.Nbpsc, rate.Nbpsc)
     grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
     return rate.symbols[grouped].reshape(-1, Nsc)
 
@@ -368,22 +281,21 @@ class IEEE80211aEncoderBlock(Block):
 
     def process(self):
         channel = self.channel
-        baseRate = rates[0xb]
+        baseRate = cc.l_rates[0xb]
         for datagram, in self.input():
             octets = np.frombuffer(datagram, np.uint8)
             # prepare header and payload bits
             rateEncoding = 0xb
-            rate = rates[rateEncoding]
+            rate = cc.l_rates[rateEncoding]
             data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
-            data_bits = np.r_[np.zeros(16, int), data_bits,
-                              (~CRC(data_bits) >> np.arange(32)[::-1]) & 1]
+            data_bits = np.r_[np.zeros(16, int), data_bits, FCS.compute(data_bits)]
             SIGNAL_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
             SIGNAL_bits[-1] = SIGNAL_bits.sum() & 1
             # OFDM modulation
             scrambler_state = np.random.randint(1,127)
             subcarriers = np.vstack((subcarriersFromBits(SIGNAL_bits, baseRate, 0   ),
-                                     subcarriersFromBits(data_bits, rate,       scrambler_state)))
-            pilotPolarity = np.resize(scrambler[0x7F], subcarriers.shape[0])
+                                     subcarriersFromBits(data_bits,   rate,     scrambler_state)))
+            pilotPolarity = np.resize(scrambler.pilot_sequence, subcarriers.shape[0])
             symbols = np.zeros((subcarriers.shape[0],nfft), complex)
             symbols[:,dataSubcarriers] = subcarriers
             symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
