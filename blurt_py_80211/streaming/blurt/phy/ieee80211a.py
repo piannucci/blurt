@@ -235,13 +235,13 @@ class OneShotDecoder:
         self.size = 0
         self.trained = False
         self.result = None
-    def feed(self, sequence, k):
+    def feed(self, frames, k):
         if self.result is not None:
             return
         if k < self.start:
-            sequence = sequence[self.start-k:]
-        self.y[self.size:self.size+sequence.shape[0]] = sequence[:self.y.shape[0]-self.size]
-        self.size += sequence.shape[0]
+            frames = frames[self.start-k:]
+        self.y[self.size:self.size+frames.shape[0]] = frames[:self.y.shape[0]-self.size]
+        self.size += frames.shape[0]
         if not self.trained:
             if self.size > N_training_samples:
                 self.training_data, self.i = train(self.y)
@@ -254,23 +254,23 @@ class OneShotDecoder:
         if self.j == 0:
             if j_valid > 0:
                 lsig = next(self.syms)
-                lsig_bits = decode(interleave(lsig.real, Nsc, 1, True))
-                if not int(lsig_bits.sum()) & 1 == 0:
+                SIGNAL_bits = decode(interleave(lsig.real, Nsc, 1, True))
+                if not int(SIGNAL_bits.sum()) & 1 == 0:
                     self.result = ()
                     return
-                lsig_bits = (lsig_bits[:18] << np.arange(18)).sum()
-                if not lsig_bits & 0xF in rates:
+                SIGNAL_bits = (SIGNAL_bits[:18] << np.arange(18)).sum()
+                if not SIGNAL_bits & 0xF in rates:
                     self.result = ()
                     return
-                self.rate = rates[lsig_bits & 0xF]
-                length_octets = (lsig_bits >> 5) & 0xFFF
+                self.rate = rates[SIGNAL_bits & 0xF]
+                length_octets = (SIGNAL_bits >> 5) & 0xFFF
                 if length_octets > self.mtu:
                     self.result = ()
                     return
                 self.length_coded_bits = (length_octets*8 + 16+6)*2
                 self.Ncbps = Nsc * self.rate.Nbpsc
                 self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
-                SIGNAL_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
+                SIGNAL_coded_bits = interleave(encode((SIGNAL_bits >> np.arange(24)) & 1), Nsc, 1)
                 self.dispersion = (lsig-(SIGNAL_coded_bits*2.-1.)).var()
                 self.j = 1
             else:
