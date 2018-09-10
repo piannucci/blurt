@@ -3,7 +3,6 @@ import scipy.signal
 
 class IIRFilter:
     def __init__(self, **kwargs):
-        print('IIRFilter:', kwargs)
         self.axis = kwargs.pop('axis', -1)
         self.dtype = kwargs.pop('dtype', np.complex128)
         self.shape = list(kwargs.pop('shape', (None,)))

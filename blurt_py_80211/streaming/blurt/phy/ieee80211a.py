@@ -12,7 +12,7 @@ Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
 stereoDelay = .005
 preemphasisOrder = 0
-gap = .05 #.2
+IFS = 2.5 * 80 * 8 / 96e3 # inter-frame space
 nfft = 64
 ncp = 16
 sts_freq = np.zeros(64, complex)
@@ -121,29 +121,30 @@ def interleave(input, Ncbps, Nbpsc, reverse=False):
     return input[...,p].flatten()
 
 class Autocorrelator:
-    def __init__(self):
-        self.y_hist = np.zeros(0)
+    def __init__(self, nChannelsPerFrame):
+        self.y_hist = np.zeros((0, nChannelsPerFrame))
         self.results = []
+        self.nChannelsPerFrame = nChannelsPerFrame
     def feed(self, y):
         y = np.r_[self.y_hist, y]
-        count_needed = y.size // N_sts_period * N_sts_period
+        count_needed = y.shape[0] // N_sts_period * N_sts_period
         count_consumed = count_needed - N_sts_reps * N_sts_period
         if count_consumed <= 0:
             self.y_hist = y
         else:
             self.y_hist = y[count_consumed:]
-            y = y[:count_needed].reshape(-1, N_sts_period)
-            corr_sum = np.abs((y[:-1].conj() * y[1:]).sum(1)).cumsum()
-            self.results.append(corr_sum[N_sts_reps-1:] - corr_sum[:-N_sts_reps+1])
+            y = y[:count_needed].reshape(-1, N_sts_period, self.nChannelsPerFrame)
+            corr_sum = np.abs((y[:-1].conj() * y[1:]).sum(1)).cumsum(0)
+            self.results.append((corr_sum[N_sts_reps-1:] - corr_sum[:-N_sts_reps+1]).mean(-1))
     def __iter__(self):
         while self.results:
-            yield self.results.pop()
+            yield self.results.pop(0)
 
 class PeakDetector:
     def __init__(self, l):
-        self.y_hist = np.zeros(0)
+        self.y_hist = np.zeros(l)
         self.l = l
-        self.i = l
+        self.i = 0
         self.results = []
     def feed(self, y):
         y = np.r_[self.y_hist, y]
@@ -160,34 +161,37 @@ class PeakDetector:
             self.i += count_consumed
     def __iter__(self):
         while self.results:
-            yield self.results.pop()
+            yield self.results.pop(0)
 
 def estimate_cfo(y, overlap, span):
     return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
 
 def remove_cfo(y, k, theta):
-    return y * np.exp(-1j*theta*np.r_[k:k+y.size])
+    return y * np.exp(-1j*theta*np.r_[k:k+y.shape[0]])[:,None]
 
 def train(y):
+    Nrx_streams = y.shape[1]
     i = 0
     theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
     i += N_sts_samples + ncp*ts_reps
-    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
-    theta += estimate_cfo(lts * (lts_freq != 0), 1, nfft)
+    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft, Nrx_streams), axis=1)
+    theta += estimate_cfo(lts * (lts_freq != 0)[:,None], 1, nfft)
     def wienerFilter(i):
-        lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft), axis=1)
-        Y = lts.mean(0)
-        S_Y = (np.abs(lts)**2).mean(0)
-        G = Y.conj()*lts_freq / S_Y
-        snr = 1./(G*lts - lts_freq).var()
+        lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft, Nrx_streams), axis=1)
+        X = lts_freq[:,None]
+        Y = lts.sum(0)
+        YY = (lts[:,:,:,None] * lts[:,:,None,:].conj()).sum(0)
+        YY_inv = np.linalg.inv(YY)
+        G = np.einsum('ij,ik,ikl->ijl', X, Y.conj(), YY_inv)
+        snr = Nrx_streams/(abs(np.einsum('ijk,lik->lij', G, lts) - X[None,:,:])**2).mean()
         return snr, i + nfft*ts_reps, G
     snr, i, G = max(map(wienerFilter, range(i-8, i+8)))
     var_input = y[:N_training_samples].var()
-    var_n = var_input / (snr * Nsc_used / Nsc + 1)
+    var_n = var_input / (snr / Nrx_streams * Nsc_used / Nsc + 1)
     var_x = var_input - var_n
     var_y = 2*var_n*var_x + var_n**2
     uncertainty = np.arctan(var_y**.5 / var_x) / nfft**.5
-    var_ni = var_x/Nsc_used/snr
+    var_ni = var_x/Nsc_used*Nrx_streams/snr
     return (G, uncertainty, var_ni, theta), i
 
 def decodeOFDM(syms, i, training_data):
@@ -200,7 +204,7 @@ def decodeOFDM(syms, i, training_data):
     R = np.diag([sigma_noise, sigma_noise])
     Q = P * 0.1
     for j, y in enumerate(syms):
-        sym = np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo)) * G
+        sym = np.einsum('ijk,ik->ij', G, np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo), axis=0))[:,0]
         i += nfft+ncp
         pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * (1.-2.*scrambler[0x7F,j%127])
         re,im,theta = x[:,0]
@@ -217,13 +221,15 @@ def decodeOFDM(syms, i, training_data):
         yield sym[dataSubcarriers] * (u/abs(u))
 
 class OneShotDecoder:
-    def __init__(self, i):
+    def __init__(self, i, nChannelsPerFrame):
+        self.mtu = 200 # XXX
         self.start = i
         self.j = 0
-        max_coded_bits = ((2 + mtu + 4) * 8 + 6) * 2
+        self.nChannelsPerFrame = nChannelsPerFrame
+        max_coded_bits = ((2 + self.mtu + 4) * 8 + 6) * 2
         max_data_symbols = (max_coded_bits+Nsc-1) // Nsc
         max_samples = N_training_samples + (ncp+nfft) * (1 + max_data_symbols)
-        self.y = np.full(max_samples, np.inf, complex)
+        self.y = np.full((max_samples, nChannelsPerFrame), np.inf, complex)
         self.size = 0
         self.trained = False
         self.result = None
@@ -232,13 +238,13 @@ class OneShotDecoder:
             return
         if k < self.start:
             sequence = sequence[self.start-k:]
-        self.y[self.size:self.size+sequence.size] = sequence[:self.y.size-self.size]
-        self.size += sequence.size
+        self.y[self.size:self.size+sequence.shape[0]] = sequence[:self.y.shape[0]-self.size]
+        self.size += sequence.shape[0]
         if not self.trained:
             if self.size > N_training_samples:
                 self.training_data, self.i = train(self.y)
-                syms = self.y[self.i:self.i+(self.y.size-self.i)//(nfft+ncp)*(nfft+ncp)]
-                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp)), self.i, self.training_data)
+                syms = self.y[self.i:self.i+(self.y.shape[0]-self.i)//(nfft+ncp)*(nfft+ncp)]
+                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp), self.nChannelsPerFrame), self.i, self.training_data)
                 self.trained = True
             else:
                 return
@@ -256,7 +262,7 @@ class OneShotDecoder:
                     return
                 self.rate = rates[lsig_bits & 0xF]
                 length_octets = (lsig_bits >> 5) & 0xFFF
-                if length_octets > mtu:
+                if length_octets > self.mtu:
                     self.result = ()
                     return
                 self.length_coded_bits = (length_octets*8 + 16+6)*2
@@ -289,8 +295,8 @@ class IEEE80211aDecoderBlock(Block):
         self.channel = channel
 
     def start(self):
-        self.autocorrelator = Autocorrelator()
-        self.peakDetector = PeakDetector(25)
+        self.autocorrelator = Autocorrelator(self.nChannelsPerFrame)
+        self.peakDetector = PeakDetector(9) # 25
         self.decoders = []
         self.lookback = collections.deque()
         self.k_current = 0
@@ -311,7 +317,7 @@ class IEEE80211aDecoderBlock(Block):
             for corr in self.autocorrelator:
                 self.peakDetector.feed(corr)
             for peak in self.peakDetector:
-                d = OneShotDecoder(peak * N_sts_period + 16)
+                d = OneShotDecoder(peak * N_sts_period + 16, self.nChannelsPerFrame)
                 k = self.k_lookback
                 for y_old in self.lookback:
                     d.feed(y_old, k)
@@ -350,17 +356,17 @@ class IEEE80211aEncoderBlock(Block):
         super().__init__()
         self.channel = channel
         self.nChannelsPerFrame = 2
+        self.intermediate_upsample = 4
 
     def start(self):
-        cutoff = (Nsc_used/2 + .5)/nfft
         self.k = 0 # LO phase
-        self.lp1 = IIRFilter.lowpass(cutoff/self.channel.upsample_factor)
-        self.lp2 = self.lp1.copy()
+        self.lp = IIRFilter.lowpass(0.5*self.intermediate_upsample/self.channel.upsample_factor)
 
     def process(self):
         channel = self.channel
         baseRate = rates[0xb]
-        for octets, in self.input():
+        for datagram, in self.input():
+            octets = np.frombuffer(datagram, np.uint8)
             # prepare header and payload bits
             rateEncoding = 0xb
             rate = rates[rateEncoding]
@@ -377,25 +383,33 @@ class IEEE80211aEncoderBlock(Block):
             symbols[:,dataSubcarriers] = subcarriers
             symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
             ts_tile_shape = (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1
-            symbols_tile_shape = (1, (ncp+nfft-1)//nfft + 1 + 1)
-            sts_time = np.tile(np.fft.ifft(sts_freq), ts_tile_shape)[-ncp*ts_reps%nfft:-nfft+1]
-            lts_time = np.tile(np.fft.ifft(lts_freq), ts_tile_shape)[-ncp*ts_reps%nfft:-nfft+1]
-            symbols  = np.tile(np.fft.ifft(symbols ), symbols_tile_shape)[:,-ncp%nfft:-nfft+1]
+            symbols_tile_shape = (1, ncp//nfft + 3)
+            intermediate_upsample = self.intermediate_upsample
+            sts_freq_ius = np.r_[sts_freq[:nfft//2], np.zeros(nfft*(intermediate_upsample-1)), sts_freq[nfft//2:]]
+            lts_freq_ius = np.r_[lts_freq[:nfft//2], np.zeros(nfft*(intermediate_upsample-1)), lts_freq[nfft//2:]]
+            symbols_ius  = np.concatenate((symbols[:,:nfft//2], np.zeros((symbols.shape[0], nfft*(intermediate_upsample-1))), symbols[:,nfft//2:]), axis=1)
+            sts_time = np.tile(np.fft.ifft(sts_freq_ius)*intermediate_upsample, ts_tile_shape)
+            lts_time = np.tile(np.fft.ifft(lts_freq_ius)*intermediate_upsample, ts_tile_shape)
+            symbols  = np.tile(np.fft.ifft(symbols_ius)*intermediate_upsample, symbols_tile_shape)
+            sts_time = sts_time[(-ncp*ts_reps%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
+            lts_time = lts_time[(-ncp*ts_reps%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
+            symbols  = symbols[:,(-ncp%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
             # temporal smoothing
-            # XXX need more than one sample of overlap; depends on oversampling
             subsequences = [sts_time, lts_time] + list(symbols)
-            output = np.zeros(sum(map(len, subsequences)) - len(subsequences) + 1, complex)
+            output = np.zeros(sum(map(len, subsequences)) - (len(subsequences) - 1) * intermediate_upsample, complex)
             i = 0
+            ramp = np.linspace(0,1,2+intermediate_upsample)[1:-1]
             for x in subsequences:
-                j = i + len(x)-1
-                output[i] += .5*x[0]
-                output[i+1:j] += x[1:-1]
-                output[j] += .5*x[-1]
-                i = j
-            output = np.vstack((output, np.zeros((channel.upsample_factor-1,
-                                                  output.size), output.dtype)))
-            output = output.T.flatten()*channel.upsample_factor
-            output = self.lp2(self.lp1(np.r_[np.zeros(200), output, np.zeros(200)]))
+                weight = np.ones(x.size)
+                weight[-1:-intermediate_upsample-1:-1] = weight[:intermediate_upsample] = ramp
+                output[i:i+len(x)] += weight * x
+                i += len(x) - intermediate_upsample
+            # inter-frame space
+            output = np.r_[output, np.zeros(round(IFS * channel.Fs*intermediate_upsample/channel.upsample_factor))]
+            # upsample
+            output = np.vstack((output, np.zeros(((channel.upsample_factor // intermediate_upsample)-1, output.size), output.dtype)))
+            output = output.T.flatten()*(channel.upsample_factor / intermediate_upsample)
+            output = self.lp(output)
             # modulation and pre-emphasis
             Omega = 2*np.pi*channel.Fc/channel.Fs
             output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.size])).real
@@ -406,6 +420,5 @@ class IEEE80211aEncoderBlock(Block):
             output /= abs(output).max()
             # stereo beamforming reduction
             delay = np.zeros(int(stereoDelay*channel.Fs))
-            pause = np.zeros(int(gap*channel.Fs))
-            frames = np.vstack((np.r_[delay, output, pause], np.r_[output, delay, pause])).T
+            frames = np.vstack((np.r_[delay, output], np.r_[output, delay])).T
             self.output((frames,))
