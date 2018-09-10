@@ -324,7 +324,7 @@ class IEEE80211aDecoderBlock(Block):
                     k += y_old.shape[0]
                 self.decoders.append(d)
             self.lookback.append(y)
-            for d in self.decoders:
+            for d in list(self.decoders):
                 d.feed(y, self.k_current)
                 if d.result is not None:
                     if d.result:
