@@ -35,6 +35,8 @@ for i in range(127):
     s = np.uint8((s << 1) ^ (1 & ((s >> 3) ^ (s >> 6))))
     scrambler[:,i] = s & 1
 
+scrambler_state_lookup = (scrambler[:,:7] << np.arange(6,-1,-1)).sum(1).argsort()
+
 ############################ CRC ############################
 
 def CRC(x):
@@ -268,8 +270,8 @@ class OneShotDecoder:
                 self.length_coded_bits = (length_octets*8 + 16+6)*2
                 self.Ncbps = Nsc * self.rate.Nbpsc
                 self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
-                plcp_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
-                self.dispersion = (lsig-(plcp_coded_bits*2.-1.)).var()
+                SIGNAL_coded_bits = interleave(encode((lsig_bits >> np.arange(24)) & 1), Nsc, 1)
+                self.dispersion = (lsig-(SIGNAL_coded_bits*2.-1.)).var()
                 self.j = 1
             else:
                 return
@@ -279,7 +281,9 @@ class OneShotDecoder:
         demapped_bits = self.rate.demap(syms, self.dispersion).reshape(-1, self.Ncbps)
         deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, True)
         llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
-        output_bits = (decode(llr) ^ np.resize(scrambler[0x5d], llr.size//2))[16:-6]
+        decoded_bits = decode(llr)
+        scrambler_state = scrambler_state_lookup[(decoded_bits[:7] << np.arange(6,-1,-1)).sum()]
+        output_bits = (decoded_bits ^ np.resize(scrambler[scrambler_state], llr.size//2))[16:-6]
         if not CRC(output_bits) == 0xc704dd7b:
             self.result = ()
             return
@@ -373,11 +377,12 @@ class IEEE80211aEncoderBlock(Block):
             data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
             data_bits = np.r_[np.zeros(16, int), data_bits,
                               (~CRC(data_bits) >> np.arange(32)[::-1]) & 1]
-            plcp_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
-            plcp_bits[-1] = plcp_bits.sum() & 1
+            SIGNAL_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
+            SIGNAL_bits[-1] = SIGNAL_bits.sum() & 1
             # OFDM modulation
-            subcarriers = np.vstack((subcarriersFromBits(plcp_bits, baseRate, 0   ),
-                                     subcarriersFromBits(data_bits, rate,     0x5d)))
+            scrambler_state = np.random.randint(1,127)
+            subcarriers = np.vstack((subcarriersFromBits(SIGNAL_bits, baseRate, 0   ),
+                                     subcarriersFromBits(data_bits, rate,       scrambler_state)))
             pilotPolarity = np.resize(scrambler[0x7F], subcarriers.shape[0])
             symbols = np.zeros((subcarriers.shape[0],nfft), complex)
             symbols[:,dataSubcarriers] = subcarriers
