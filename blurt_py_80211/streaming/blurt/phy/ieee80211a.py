@@ -38,21 +38,24 @@ N_sts_reps = N_sts_samples // N_sts_period
 N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
 
 class Autocorrelator:
-    def __init__(self, nChannelsPerFrame):
+    def __init__(self, nChannelsPerFrame, oversample):
         self.y_hist = np.zeros((0, nChannelsPerFrame))
         self.results = []
         self.nChannelsPerFrame = nChannelsPerFrame
+        self.quantum = oversample * N_sts_period
+        self.width = N_sts_reps
+        self.history = self.quantum * self.width
     def feed(self, y):
         y = np.r_[self.y_hist, y]
-        count_needed = y.shape[0] // N_sts_period * N_sts_period
-        count_consumed = count_needed - N_sts_reps * N_sts_period
+        count_needed = y.shape[0] // self.quantum * self.quantum
+        count_consumed = count_needed - self.history
         if count_consumed <= 0:
             self.y_hist = y
         else:
             self.y_hist = y[count_consumed:]
-            y = y[:count_needed].reshape(-1, N_sts_period, self.nChannelsPerFrame)
+            y = y[:count_needed].reshape(-1, self.quantum, self.nChannelsPerFrame)
             corr_sum = np.abs((y[:-1].conj() * y[1:]).sum(1)).cumsum(0)
-            self.results.append((corr_sum[N_sts_reps-1:] - corr_sum[:-N_sts_reps+1]).mean(-1))
+            self.results.append((corr_sum[self.width-1:] - corr_sum[:-self.width+1]).mean(-1))
     def __iter__(self):
         while self.results:
             yield self.results.pop(0)
@@ -138,7 +141,8 @@ def decodeOFDM(syms, i, training_data):
         yield sym[dataSubcarriers] * (u/abs(u))
 
 class OneShotDecoder:
-    def __init__(self, i, nChannelsPerFrame):
+    def __init__(self, i, nChannelsPerFrame, oversample):
+        self.oversample = oversample
         self.mtu = 200 # XXX
         self.start = i
         self.j = 0
@@ -210,9 +214,10 @@ class IEEE80211aDecoderBlock(Block):
     def __init__(self, channel):
         super().__init__()
         self.channel = channel
+        self.intermediate_upsample = 1
 
     def start(self):
-        self.autocorrelator = Autocorrelator(self.nChannelsPerFrame)
+        self.autocorrelator = Autocorrelator(self.nChannelsPerFrame, self.intermediate_upsample)
         self.peakDetector = PeakDetector(9) # 25
         self.decoders = []
         self.lookback = collections.deque()
@@ -234,7 +239,8 @@ class IEEE80211aDecoderBlock(Block):
             for corr in self.autocorrelator:
                 self.peakDetector.feed(corr)
             for peak in self.peakDetector:
-                d = OneShotDecoder(peak * N_sts_period + 16, self.nChannelsPerFrame)
+                k = (peak+1) * N_sts_period * self.intermediate_upsample
+                d = OneShotDecoder(k, self.nChannelsPerFrame, self.intermediate_upsample)
                 k = self.k_lookback
                 for y_old in self.lookback:
                     d.feed(y_old, k)
