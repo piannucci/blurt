@@ -5,6 +5,8 @@ import numpy as np
 from ..graph import Output, Input, Block
 from .iir import IIRFilter
 from . import cc
+from . import rates
+from . import ofdm
 from .interleaver import interleave
 from .crc import CRC32_802_11_FCS as FCS
 from . import scrambler
@@ -14,27 +16,22 @@ Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 stereoDelay = .005
 preemphasisOrder = 0
 IFS = 2.5 * 80 * 8 / 96e3 # inter-frame space
-nfft = 64
-ncp = 16
-sts_freq = np.zeros(64, complex)
-sts_freq[[4, 8, 12, 16, 20, 24, -24, -20, -16, -12, -8, -4]] = \
-    np.array([-1, -1, 1, 1, 1, 1, 1, -1, 1, -1, -1, 1]) * (13./6.)**.5 * (1+1j)
-lts_freq = np.array([0, 1,-1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,
-                     1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-                     0, 0, 0, 0, 0, 0, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1,
-                     1, 1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1, 1, 1, 1, 1])
-ts_reps = 2
-dataSubcarriers = np.r_[-26:-21,-20:-7,-6:0,1:7,8:21,22:27]
-pilotSubcarriers = np.array([-21,-7,7,21])
-pilotTemplate = np.array([1,1,1,-1])
+
+nfft = ofdm.L.nfft
+ncp = ofdm.L.ncp
+sts_freq = ofdm.L.sts_freq
+lts_freq = ofdm.L.lts_freq
+ts_reps = ofdm.L.ts_reps
+dataSubcarriers = ofdm.L.dataSubcarriers
+pilotSubcarriers = ofdm.L.pilotSubcarriers
+pilotTemplate = ofdm.L.pilotTemplate
+Nsc = ofdm.L.Nsc
+Nsc_used = ofdm.L.Nsc_used
 
 ############################ OFDM ############################
 
-Nsc = dataSubcarriers.size
-Nsc_used = dataSubcarriers.size + pilotSubcarriers.size
 N_sts_period = nfft // 4
 N_sts_samples = ts_reps * (ncp + nfft)
-N_sts_reps = N_sts_samples // N_sts_period
 N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
 
 class Autocorrelator:
@@ -43,7 +40,7 @@ class Autocorrelator:
         self.results = []
         self.nChannelsPerFrame = nChannelsPerFrame
         self.quantum = oversample * N_sts_period
-        self.width = N_sts_reps
+        self.width = N_sts_samples // N_sts_period
         self.history = self.quantum * self.width
     def feed(self, y):
         y = np.r_[self.y_hist, y]
@@ -178,11 +175,11 @@ class OneShotDecoder:
                     self.result = ()
                     return
                 SIGNAL_bits = (SIGNAL_bits[:18] << np.arange(18)).sum()
-                if not SIGNAL_bits & 0xF in cc.l_rates:
+                self.rate = rates.L_rate(SIGNAL_bits & 0xf)
+                if self.rate is None:
                     self.result = ()
                     return
-                self.rate = cc.l_rates[SIGNAL_bits & 0xF]
-                length_octets = (SIGNAL_bits >> 5) & 0xFFF
+                length_octets = (SIGNAL_bits >> 5) & 0xfff
                 if length_octets > self.mtu:
                     self.result = ()
                     return
@@ -197,7 +194,7 @@ class OneShotDecoder:
         if j_valid < self.length_symbols + 1:
             return
         syms = np.array(list(itertools.islice(self.syms, self.length_symbols)))
-        demapped_bits = self.rate.demap(syms, self.dispersion)
+        demapped_bits = self.rate.constellation[0].demap(syms, self.dispersion)
         deinterleaved_bits = interleave(demapped_bits, self.Ncbps, self.rate.Nbpsc, reverse=True)
         llr = self.rate.depuncture(deinterleaved_bits)[:self.length_coded_bits]
         output_bits = scrambler.descramble(cc.decode(llr))[16:-6]
@@ -269,7 +266,7 @@ def subcarriersFromBits(bits, rate, scramblerState):
     punctured = cc.encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
     interleaved = interleave(punctured, Nsc * rate.Nbpsc, rate.Nbpsc)
     grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
-    return rate.symbols[grouped].reshape(-1, Nsc)
+    return rate.constellation[0].symbols[grouped].reshape(-1, Nsc)
 
 class IEEE80211aEncoderBlock(Block):
     inputs = [Input(())]
@@ -287,51 +284,27 @@ class IEEE80211aEncoderBlock(Block):
 
     def process(self):
         channel = self.channel
-        baseRate = cc.l_rates[0xb]
+        baseRate = rates.L_rate(0xb)
         for datagram, in self.input():
             octets = np.frombuffer(datagram, np.uint8)
             # prepare header and payload bits
             rateEncoding = 0xb
-            rate = cc.l_rates[rateEncoding]
+            rate = rates.L_rate(rateEncoding)
             data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
             data_bits = np.r_[np.zeros(16, int), data_bits, FCS.compute(data_bits)]
             SIGNAL_bits = ((rateEncoding | ((octets.size+4) << 5)) >> np.arange(18)) & 1
             SIGNAL_bits[-1] = SIGNAL_bits.sum() & 1
             # OFDM modulation
             scrambler_state = np.random.randint(1,127)
-            subcarriers = np.vstack((subcarriersFromBits(SIGNAL_bits, baseRate, 0   ),
-                                     subcarriersFromBits(data_bits,   rate,     scrambler_state)))
-            pilotPolarity = np.resize(scrambler.pilot_sequence, subcarriers.shape[0])
-            symbols = np.zeros((subcarriers.shape[0],nfft), complex)
-            symbols[:,dataSubcarriers] = subcarriers
-            symbols[:,pilotSubcarriers] = pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
-            ts_tile_shape = (ncp*ts_reps+nfft-1)//nfft + ts_reps + 1
-            symbols_tile_shape = (1, ncp//nfft + 3)
-            intermediate_upsample = self.intermediate_upsample
-            sts_freq_ius = np.r_[sts_freq[:nfft//2], np.zeros(nfft*(intermediate_upsample-1)), sts_freq[nfft//2:]]
-            lts_freq_ius = np.r_[lts_freq[:nfft//2], np.zeros(nfft*(intermediate_upsample-1)), lts_freq[nfft//2:]]
-            symbols_ius  = np.concatenate((symbols[:,:nfft//2], np.zeros((symbols.shape[0], nfft*(intermediate_upsample-1))), symbols[:,nfft//2:]), axis=1)
-            sts_time = np.tile(np.fft.ifft(sts_freq_ius)*intermediate_upsample, ts_tile_shape)
-            lts_time = np.tile(np.fft.ifft(lts_freq_ius)*intermediate_upsample, ts_tile_shape)
-            symbols  = np.tile(np.fft.ifft(symbols_ius)*intermediate_upsample, symbols_tile_shape)
-            sts_time = sts_time[(-ncp*ts_reps%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
-            lts_time = lts_time[(-ncp*ts_reps%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
-            symbols  = symbols[:,(-ncp%nfft)*intermediate_upsample:(-nfft+1)*intermediate_upsample]
-            # temporal smoothing
-            subsequences = [sts_time, lts_time] + list(symbols)
-            output = np.zeros(sum(map(len, subsequences)) - (len(subsequences) - 1) * intermediate_upsample, complex)
-            i = 0
-            ramp = np.linspace(0,1,2+intermediate_upsample)[1:-1]
-            for x in subsequences:
-                weight = np.ones(x.size)
-                weight[-1:-intermediate_upsample-1:-1] = weight[:intermediate_upsample] = ramp
-                output[i:i+len(x)] += weight * x
-                i += len(x) - intermediate_upsample
+            parts = (subcarriersFromBits(SIGNAL_bits, baseRate, 0   ),
+                     subcarriersFromBits(data_bits,   rate,     scrambler_state))
+            oversample = self.intermediate_upsample
+            output = ofdm.L.encode(parts, oversample)
             # inter-frame space
-            output = np.r_[output, np.zeros(round(IFS * channel.Fs*intermediate_upsample/channel.upsample_factor))]
+            output = np.r_[output, np.zeros(round(IFS * channel.Fs*oversample/channel.upsample_factor))]
             # upsample
-            output = np.vstack((output, np.zeros(((channel.upsample_factor // intermediate_upsample)-1, output.size), output.dtype)))
-            output = output.T.flatten()*(channel.upsample_factor / intermediate_upsample)
+            output = np.vstack((output, np.zeros(((channel.upsample_factor // oversample)-1, output.size), output.dtype)))
+            output = output.T.flatten()*(channel.upsample_factor / oversample)
             output = self.lp(output)
             # modulation and pre-emphasis
             Omega = 2*np.pi*channel.Fc/channel.Fs
