@@ -98,7 +98,7 @@ def train(y):
         X = lts_freq[:,None]
         Y = lts.sum(0)
         YY = (lts[:,:,:,None] * lts[:,:,None,:].conj()).sum(0)
-        YY_inv = np.linalg.inv(YY)
+        YY_inv = np.linalg.pinv(YY, 1e-3)
         G = np.einsum('ij,ik,ikl->ijl', X, Y.conj(), YY_inv)
         snr = Nrx_streams/(abs(np.einsum('ijk,lik->lij', G, lts) - X[None,:,:])**2).mean()
         return snr, i + nfft*ts_reps, G
@@ -277,6 +277,7 @@ class IEEE80211aEncoderBlock(Block):
         self.channel = channel
         self.nChannelsPerFrame = 2
         self.intermediate_upsample = 4
+        self.preferredRate = 6
 
     def start(self):
         self.k = 0 # LO phase
@@ -288,7 +289,7 @@ class IEEE80211aEncoderBlock(Block):
         for datagram, in self.input():
             octets = np.frombuffer(datagram, np.uint8)
             # prepare header and payload bits
-            rateEncoding = 0xb
+            rateEncoding = {6:0xb, 9:0xf, 12:0xa, 18:0xe, 24:0x9, 36:0xd, 48:0x8, 54:0xc}[self.preferredRate]
             rate = rates.L_rate(rateEncoding)
             data_bits = (octets[:,None] >> np.arange(8)[None,:]).flatten() & 1
             data_bits = np.r_[np.zeros(16, int), data_bits, FCS.compute(data_bits)]
@@ -296,8 +297,8 @@ class IEEE80211aEncoderBlock(Block):
             SIGNAL_bits[-1] = SIGNAL_bits.sum() & 1
             # OFDM modulation
             scrambler_state = np.random.randint(1,127)
-            parts = (subcarriersFromBits(SIGNAL_bits, baseRate, 0   ),
-                     subcarriersFromBits(data_bits,   rate,     scrambler_state))
+            parts = (subcarriersFromBits(SIGNAL_bits, baseRate, 0),
+                     subcarriersFromBits(data_bits, rate, scrambler_state))
             oversample = self.intermediate_upsample
             output = ofdm.L.encode(parts, oversample)
             # inter-frame space
@@ -306,13 +307,14 @@ class IEEE80211aEncoderBlock(Block):
             output = np.vstack((output, np.zeros(((channel.upsample_factor // oversample)-1, output.size), output.dtype)))
             output = output.T.flatten()*(channel.upsample_factor / oversample)
             output = self.lp(output)
-            # modulation and pre-emphasis
+            # pre-emphasis
             Omega = 2*np.pi*channel.Fc/channel.Fs
             output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.size])).real
             self.k += output.size
             for i in range(preemphasisOrder):
                 output = np.diff(np.r_[output,0])
             output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
+            # crest control
             output /= abs(output).max()
             # stereo beamforming reduction
             delay = np.zeros(int(stereoDelay*channel.Fs))

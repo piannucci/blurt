@@ -21,7 +21,7 @@ from .phy.ieee80211a import Channel, IEEE80211aDecoderBlock, IEEE80211aEncoderBl
 mtu = 76
 _channel = Channel(48e3, 17.0e3, 8)
 audioFrameSize = 256
-vuThresh = 0
+vuThresh = 25
 
 ############################ Audio ############################
 
@@ -50,6 +50,7 @@ class BlurtTransceiver:
             self.os_b = OutStream_SinkBlock()
             self.decoder_b = IEEE80211aDecoderBlock(rxchannel)
             self.encoder_b = IEEE80211aEncoderBlock(txchannel)
+            self.encoder_b.preferredRate = 6
             self.dispatch_b = PacketDispatchBlock()
             self.arbiter_b = Arbiter(len(tunnels))
             self.reassemblers = [ReassemblyBlock(utun.pdb) for utun in tunnels]
@@ -97,7 +98,7 @@ if __name__ == '__main__':
         def __init__(self, utun: utun.utun):
             super().__init__()
             self.utun = utun
-            self.ll_mtu = utun.mtu - 12 # room for src, dst link-layer address
+            self.ll_mtu = mtu - 12 # room for src, dst link-layer address
     u1.pdb = BlurtPDB(u1)
     u2.pdb = BlurtPDB(u2)
     xcvr = BlurtTransceiver({
@@ -110,7 +111,7 @@ if __name__ == '__main__':
         while True:
             time.sleep(.05)
             vu = int(max(0, 80 + 10*np.log10(xcvr.agc.vu)))
-            bar = [' '] * 100
+            bar = [' '] * 150
             bar[:vu] = ['.'] * vu
             bar[vuThresh+80] = '|'
             print(clearLine + ''.join(bar) + ' %3d' % vu, end='')

@@ -21,7 +21,7 @@ class InStream_SourceBlock(IOStream, Block):
     def write(self, frames, inputTime, now):
         if self.output_queues[0].closed:
             return
-        self.output((frames, inputTime, now))
+        self.output(((frames, inputTime, now),))
         self.notify()
 
     def inDone(self):
