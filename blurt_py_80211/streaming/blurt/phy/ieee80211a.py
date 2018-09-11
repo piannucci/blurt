@@ -1,6 +1,5 @@
 import collections
 import itertools
-import typing
 import numpy as np
 from ..graph import Output, Input, Block
 from .iir import IIRFilter
@@ -11,6 +10,7 @@ from .interleaver import interleave
 from .crc import CRC32_802_11_FCS as FCS
 from . import scrambler
 from . import correlator
+from .graph_adapter import GenericDecoderBlock
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
@@ -18,130 +18,59 @@ stereoDelay = .005
 preemphasisOrder = 0
 IFS = 2.5 * 80 * 8 / 96e3 # inter-frame space
 
-nfft = ofdm.L.nfft
-ncp = ofdm.L.ncp
-sts_freq = ofdm.L.sts_freq
-lts_freq = ofdm.L.lts_freq
-ts_reps = ofdm.L.ts_reps
-dataSubcarriers = ofdm.L.dataSubcarriers
-pilotSubcarriers = ofdm.L.pilotSubcarriers
-pilotTemplate = ofdm.L.pilotTemplate
-Nsc = ofdm.L.Nsc
-Nsc_used = ofdm.L.Nsc_used
-
 ############################ OFDM ############################
 
-N_sts_period = nfft // 4
-N_sts_samples = ts_reps * (ncp + nfft)
-N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
-
-def estimate_cfo(y, overlap, span):
-    return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
-
-def remove_cfo(y, k, theta):
-    return y * np.exp(-1j*theta*np.r_[k:k+y.shape[0]])[:,None]
-
-def train(y):
-    Nrx_streams = y.shape[1]
-    i = 0
-    theta = estimate_cfo(y[i:i+N_sts_samples], N_sts_period, N_sts_period)
-    i += N_sts_samples + ncp*ts_reps
-    lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft, Nrx_streams), axis=1)
-    theta += estimate_cfo(lts * (lts_freq != 0)[:,None], 1, nfft)
-    def wienerFilter(i):
-        lts = np.fft.fft(remove_cfo(y[i:i+nfft*ts_reps], i, theta).reshape(-1, nfft, Nrx_streams), axis=1)
-        X = lts_freq[:,None]
-        Y = lts.sum(0)
-        YY = (lts[:,:,:,None] * lts[:,:,None,:].conj()).sum(0)
-        YY_inv = np.linalg.pinv(YY, 1e-3)
-        G = np.einsum('ij,ik,ikl->ijl', X, Y.conj(), YY_inv)
-        snr = Nrx_streams/(abs(np.einsum('ijk,lik->lij', G, lts) - X[None,:,:])**2).mean()
-        return snr, i + nfft*ts_reps, G
-    snr, i, G = max(map(wienerFilter, range(i-8, i+8)))
-    var_input = y[:N_training_samples].var()
-    var_n = var_input / (snr / Nrx_streams * Nsc_used / Nsc + 1)
-    var_x = var_input - var_n
-    var_y = 2*var_n*var_x + var_n**2
-    uncertainty = np.arctan(var_y**.5 / var_x) / nfft**.5
-    var_ni = var_x/Nsc_used*Nrx_streams/snr
-    return (G, uncertainty, var_ni, theta), i
-
-def decodeOFDM(syms, i, training_data):
-    G, uncertainty, var_ni, theta_cfo = training_data
-    Np = pilotSubcarriers.size
-    sigma_noise = Np*var_ni*.5
-    sigma = sigma_noise + Np*np.sin(uncertainty)**2
-    P = np.diag([sigma, sigma, uncertainty**2])
-    x = Np * np.array([[1.,0.,0.]]).T
-    R = np.diag([sigma_noise, sigma_noise])
-    Q = P * 0.1
-    for j, y in enumerate(syms):
-        sym = np.einsum('ijk,ik->ij', G, np.fft.fft(remove_cfo(y[ncp:], i+ncp, theta_cfo), axis=0))[:,0]
-        i += nfft+ncp
-        pilot = (sym[pilotSubcarriers]*pilotTemplate).sum() * float(1-2*scrambler.pilot_sequence[j%127])
-        re,im,theta = x[:,0]
-        c, s = np.cos(theta), np.sin(theta)
-        F = np.array([[c, -s, -s*re - c*im], [s, c, c*re - s*im], [0, 0, 1]])
-        x[0,0] = c*re - s*im
-        x[1,0] = c*im + s*re
-        P = F.dot(P).dot(F.T) + Q
-        S = P[:2,:2] + R
-        K = np.linalg.solve(S, P[:2,:]).T
-        x += K.dot(np.array([[pilot.real], [pilot.imag]]) - x[:2,:])
-        P -= K.dot(P[:2,:])
-        u = x[0,0] - x[1,0]*1j
-        yield sym[dataSubcarriers] * (u/abs(u))
-
-class OneShotDecoder:
+class Clause18Decoder:
     def __init__(self, i, nChannelsPerFrame, oversample):
         self.oversample = oversample
-        self.mtu = 200 # XXX
+        self.mtu = 1500
         self.start = i
         self.j = 0
         self.nChannelsPerFrame = nChannelsPerFrame
         max_coded_bits = ((2 + self.mtu + 4) * 8 + 6) * 2
-        max_data_symbols = (max_coded_bits+Nsc-1) // Nsc
-        max_samples = N_training_samples + (ncp+nfft) * (1 + max_data_symbols)
+        max_data_symbols = (max_coded_bits+ofdm.L.Nsc-1) // ofdm.L.Nsc
+        max_samples = ofdm.L.N_training_samples + ofdm.L.nsym * (1 + max_data_symbols)
         self.y = np.full((max_samples, nChannelsPerFrame), np.inf, complex)
         self.size = 0
         self.trained = False
         self.result = None
-    def feed(self, frames, k):
+    def process(self, frames, k):
         if self.result is not None:
-            return
+            return self.result
         if k < self.start:
             frames = frames[self.start-k:]
+        nsym = ofdm.L.nsym
         self.y[self.size:self.size+frames.shape[0]] = frames[:self.y.shape[0]-self.size]
         self.size += frames.shape[0]
         if not self.trained:
-            if self.size > N_training_samples:
-                self.training_data, self.i = train(self.y)
-                syms = self.y[self.i:self.i+(self.y.shape[0]-self.i)//(nfft+ncp)*(nfft+ncp)]
-                self.syms = decodeOFDM(syms.reshape(-1, (nfft+ncp), self.nChannelsPerFrame), self.i, self.training_data)
+            if self.size > ofdm.L.N_training_samples:
+                self.training_data, self.i = ofdm.L.train(self.y)
+                syms = self.y[self.i:self.i+(self.y.shape[0]-self.i)//nsym*nsym]
+                self.syms = ofdm.L.ekfDecoder(syms.reshape(-1, nsym, self.nChannelsPerFrame), self.i, self.training_data)
                 self.trained = True
             else:
                 return
-        j_valid = (self.size - self.i) // (nfft + ncp)
+        j_valid = (self.size - self.i) // nsym
         if self.j == 0:
             if j_valid > 0:
                 lsig = next(self.syms)
-                SIGNAL_bits = cc.decode(interleave(lsig.real, Nsc, 1, reverse=True))
+                SIGNAL_bits = cc.decode(interleave(lsig.real, ofdm.L.Nsc, 1, reverse=True))
                 if not int(SIGNAL_bits.sum()) & 1 == 0:
                     self.result = ()
-                    return
+                    return self.result
                 SIGNAL_bits = (SIGNAL_bits[:18] << np.arange(18)).sum()
                 self.rate = rates.L_rate(SIGNAL_bits & 0xf)
                 if self.rate is None:
                     self.result = ()
-                    return
+                    return self.result
                 length_octets = (SIGNAL_bits >> 5) & 0xfff
                 if length_octets > self.mtu:
                     self.result = ()
-                    return
+                    return self.result
                 self.length_coded_bits = (length_octets*8 + 16+6)*2
-                self.Ncbps = Nsc * self.rate.Nbpsc
+                self.Ncbps = ofdm.L.Nsc * self.rate.Nbpsc
                 self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
-                SIGNAL_coded_bits = interleave(cc.encode((SIGNAL_bits >> np.arange(24)) & 1), Nsc, 1)
+                SIGNAL_coded_bits = interleave(cc.encode((SIGNAL_bits >> np.arange(24)) & 1), ofdm.L.Nsc, 1)
                 self.dispersion = (lsig-(SIGNAL_coded_bits*2.-1.)).var()
                 self.j = 1
             else:
@@ -155,68 +84,14 @@ class OneShotDecoder:
         output_bits = scrambler.descramble(cc.decode(llr))[16:-6]
         if not FCS.check(output_bits):
             self.result = ()
-            return
+            return self.result
         output_bytes = (output_bits[:-32].reshape(-1, 8) << np.arange(8)).sum(1)
         self.result = output_bytes.astype(np.uint8).tostring(), 10*np.log10(1/self.dispersion)
+        return self.result
 
-class IEEE80211aDecoderBlock(Block):
-    inputs = [Input(('nChannelsPerFrame',))]
-    outputs = [Output(typing.Tuple[np.ndarray, float], ())]
-
+class IEEE80211aDecoderBlock(GenericDecoderBlock):
     def __init__(self, channel):
-        super().__init__()
-        self.channel = channel
-        self.intermediate_upsample = 1
-
-    def start(self):
-        self.detector = correlator.Clause18Detector(self.nChannelsPerFrame, self.intermediate_upsample)
-        self.decoders = []
-        self.lookback = collections.deque()
-        self.k_current = 0
-        self.k_lookback = 0
-        self.lp = IIRFilter.lowpass(.45/self.channel.upsample_factor, shape=(None, self.nChannelsPerFrame), axis=0)
-        self.i = 0
-
-    def process(self):
-        channel = self.channel
-        Omega = 2*np.pi*channel.Fc/channel.Fs
-        upsample_factor = channel.upsample_factor
-        for (y, inputTime, now), in self.input():
-            nFrames = y.shape[0]
-            y = self.lp(y * np.exp(-1j*Omega * np.r_[self.i:self.i+nFrames])[:,None])
-            y = y[-self.i%channel.upsample_factor::channel.upsample_factor]
-            self.i += nFrames
-            for peak in self.detector.process(y):
-                d = OneShotDecoder(peak, self.nChannelsPerFrame, self.intermediate_upsample)
-                k = self.k_lookback
-                for y_old in self.lookback:
-                    d.feed(y_old, k)
-                    k += y_old.shape[0]
-                self.decoders.append(d)
-            self.lookback.append(y)
-            for d in list(self.decoders):
-                d.feed(y, self.k_current)
-                if d.result is not None:
-                    if d.result:
-                        self.output((d.result,))
-                    self.decoders.remove(d)
-            self.k_current += y.shape[0]
-            while self.lookback:
-                if self.k_lookback + self.lookback[0].shape[0] >= self.k_current - 1024:
-                    break
-                self.k_lookback += self.lookback.popleft().shape[0]
-
-def subcarriersFromBits(bits, rate, scramblerState):
-    # adds tail bits and any needed padding to form a full symbol; does not add SERVICE
-    Ncbps = Nsc * rate.Nbpsc
-    Nbps = Ncbps * rate.ratio[0] // rate.ratio[1]
-    pad_bits = 6 + -(bits.size + 6) % Nbps
-    scrambled = scrambler.scramble(np.r_[bits, np.zeros(pad_bits, int)], scramblerState)
-    scrambled[bits.size:bits.size+6] = 0
-    punctured = cc.encode(scrambled)[np.resize(rate.puncturingMatrix, scrambled.size*2)]
-    interleaved = interleave(punctured, Nsc * rate.Nbpsc, rate.Nbpsc)
-    grouped = (interleaved.reshape(-1, rate.Nbpsc) << np.arange(rate.Nbpsc)).sum(1)
-    return rate.constellation[0].symbols[grouped].reshape(-1, Nsc)
+        super().__init__(channel, correlator.Clause18Detector, Clause18Decoder)
 
 class IEEE80211aEncoderBlock(Block):
     inputs = [Input(())]
@@ -247,8 +122,8 @@ class IEEE80211aEncoderBlock(Block):
             SIGNAL_bits[-1] = SIGNAL_bits.sum() & 1
             # OFDM modulation
             scrambler_state = np.random.randint(1,127)
-            parts = (subcarriersFromBits(SIGNAL_bits, baseRate, 0),
-                     subcarriersFromBits(data_bits, rate, scrambler_state))
+            parts = (ofdm.L.subcarriersFromBits(SIGNAL_bits, baseRate, 0),
+                     ofdm.L.subcarriersFromBits(data_bits, rate, scrambler_state))
             oversample = self.intermediate_upsample
             output = ofdm.L.encode(parts, oversample)
             # inter-frame space
