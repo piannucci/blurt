@@ -14,9 +14,7 @@ from .graph_adapter import GenericDecoderBlock
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
-stereoDelay = .005
 preemphasisOrder = 0
-IFS = 2.5 * 80 * 8 / 96e3 # inter-frame space
 
 ############################ OFDM ############################
 
@@ -101,12 +99,16 @@ class IEEE80211aEncoderBlock(Block):
         super().__init__()
         self.channel = channel
         self.nChannelsPerFrame = 2
-        self.intermediate_upsample = 4
+        self.oversample = 4
         self.preferredRate = 6
 
     def start(self):
         self.k = 0 # LO phase
-        self.lp = IIRFilter.lowpass(0.5*self.intermediate_upsample/self.channel.upsample_factor)
+        self.lp = IIRFilter.lowpass(
+            0.5*self.oversample/self.channel.upsample_factor,
+            axis=0,
+            shape=(None,self.nChannelsPerFrame,)
+        )
 
     def process(self):
         channel = self.channel
@@ -124,24 +126,24 @@ class IEEE80211aEncoderBlock(Block):
             scrambler_state = np.random.randint(1,127)
             parts = (ofdm.L.subcarriersFromBits(SIGNAL_bits, baseRate, 0),
                      ofdm.L.subcarriersFromBits(data_bits, rate, scrambler_state))
-            oversample = self.intermediate_upsample
-            output = ofdm.L.encode(parts, oversample)
+            oversample = self.oversample
+            output = ofdm.L.encode(parts, oversample, self.nChannelsPerFrame)
             # inter-frame space
-            output = np.r_[output, np.zeros(round(IFS * channel.Fs*oversample/channel.upsample_factor))]
+            output = np.concatenate((
+                output,
+                np.zeros((round(ofdm.L.IFS*oversample), self.nChannelsPerFrame))
+            ))
             # upsample
-            output = np.vstack((output, np.zeros(((channel.upsample_factor // oversample)-1, output.size), output.dtype)))
-            output = output.T.flatten()*(channel.upsample_factor / oversample)
-            output = self.lp(output)
-            # pre-emphasis
+            output = self.lp(np.repeat(output, channel.upsample_factor // oversample, 0))
+            # upconvert
             Omega = 2*np.pi*channel.Fc/channel.Fs
-            output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.size])).real
-            self.k += output.size
-            for i in range(preemphasisOrder):
-                output = np.diff(np.r_[output,0])
-            output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
+            output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.shape[0]])[:,None]).real
+            self.k += output.shape[0]
+            if 0:
+                # pre-emphasize TODO make this work on output with shape[time,spatial stream]
+                for i in range(preemphasisOrder):
+                    output = np.diff(np.r_[output,0])
+                output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
             # crest control
             output /= abs(output).max()
-            # stereo beamforming reduction
-            delay = np.zeros(int(stereoDelay*channel.Fs))
-            frames = np.vstack((np.r_[delay, output], np.r_[output, delay])).T
-            self.output((frames,))
+            self.output((output,))
