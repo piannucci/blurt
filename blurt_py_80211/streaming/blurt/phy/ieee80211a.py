@@ -10,6 +10,7 @@ from . import ofdm
 from .interleaver import interleave
 from .crc import CRC32_802_11_FCS as FCS
 from . import scrambler
+from . import correlator
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
@@ -33,52 +34,6 @@ Nsc_used = ofdm.L.Nsc_used
 N_sts_period = nfft // 4
 N_sts_samples = ts_reps * (ncp + nfft)
 N_training_samples = N_sts_samples + ts_reps * (ncp + nfft) + 8
-
-class Autocorrelator:
-    def __init__(self, nChannelsPerFrame, oversample):
-        self.y_hist = np.zeros((0, nChannelsPerFrame))
-        self.results = []
-        self.nChannelsPerFrame = nChannelsPerFrame
-        self.quantum = oversample * N_sts_period
-        self.width = N_sts_samples // N_sts_period
-        self.history = self.quantum * self.width
-    def feed(self, y):
-        y = np.r_[self.y_hist, y]
-        count_needed = y.shape[0] // self.quantum * self.quantum
-        count_consumed = count_needed - self.history
-        if count_consumed <= 0:
-            self.y_hist = y
-        else:
-            self.y_hist = y[count_consumed:]
-            y = y[:count_needed].reshape(-1, self.quantum, self.nChannelsPerFrame)
-            corr_sum = np.abs((y[:-1].conj() * y[1:]).sum(1)).cumsum(0)
-            self.results.append((corr_sum[self.width-1:] - corr_sum[:-self.width+1]).mean(-1))
-    def __iter__(self):
-        while self.results:
-            yield self.results.pop(0)
-
-class PeakDetector:
-    def __init__(self, l):
-        self.y_hist = np.zeros(l)
-        self.l = l
-        self.i = 0
-        self.results = []
-    def feed(self, y):
-        y = np.r_[self.y_hist, y]
-        count_needed = y.size
-        count_consumed = count_needed - 2*self.l
-        if count_consumed <= 0:
-            self.y_hist = y
-        else:
-            self.y_hist = y[count_consumed:]
-            stripes_shape = (2*self.l+1, count_needed-2*self.l)
-            stripes_strides = (y.strides[0],)*2
-            stripes = np.lib.stride_tricks.as_strided(y, stripes_shape, stripes_strides)
-            self.results.extend((stripes.argmax(0) == self.l).nonzero()[0] + self.i)
-            self.i += count_consumed
-    def __iter__(self):
-        while self.results:
-            yield self.results.pop(0)
 
 def estimate_cfo(y, overlap, span):
     return np.angle((y[:-overlap].conj() * y[overlap:]).sum()) / span
@@ -214,8 +169,7 @@ class IEEE80211aDecoderBlock(Block):
         self.intermediate_upsample = 1
 
     def start(self):
-        self.autocorrelator = Autocorrelator(self.nChannelsPerFrame, self.intermediate_upsample)
-        self.peakDetector = PeakDetector(9) # 25
+        self.detector = correlator.Clause18Detector(self.nChannelsPerFrame, self.intermediate_upsample)
         self.decoders = []
         self.lookback = collections.deque()
         self.k_current = 0
@@ -232,12 +186,8 @@ class IEEE80211aDecoderBlock(Block):
             y = self.lp(y * np.exp(-1j*Omega * np.r_[self.i:self.i+nFrames])[:,None])
             y = y[-self.i%channel.upsample_factor::channel.upsample_factor]
             self.i += nFrames
-            self.autocorrelator.feed(y)
-            for corr in self.autocorrelator:
-                self.peakDetector.feed(corr)
-            for peak in self.peakDetector:
-                k = (peak+1) * N_sts_period * self.intermediate_upsample
-                d = OneShotDecoder(k, self.nChannelsPerFrame, self.intermediate_upsample)
+            for peak in self.detector.process(y):
+                d = OneShotDecoder(peak, self.nChannelsPerFrame, self.intermediate_upsample)
                 k = self.k_lookback
                 for y_old in self.lookback:
                     d.feed(y_old, k)
