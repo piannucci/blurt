@@ -14,7 +14,6 @@ class FileSink(Block):
             pickle.dump(item, self.f, -1)
 
 # import numpy as np
-# import threading
 # from .threaded import SelectorBlock
 #
 # class FileSource(SelectorBlock):

@@ -3,7 +3,6 @@ import collections
 import threading
 import select
 import itertools
-from .graph import Block
 from .timers import TimerQueue
 
 class PipeQueue:
@@ -20,13 +19,17 @@ class PipeQueue:
         self.pipe[0].read(1)
         return self.q.popleft()
 
+    def clear(self):
+        while bool(self.q):
+            self.get()
+
     def fileno(self):
         return self.pipe[0].fileno()
 
     def __bool__(self):
         return bool(self.q)
 
-class SelectorBlock(Block):
+class Selector:
     conditionEnum = itertools.count()
     QuitCondition = next(conditionEnum)
     UpdatedTimerCondition = next(conditionEnum)
@@ -43,12 +46,15 @@ class SelectorBlock(Block):
         self.tq = TimerQueue()
 
     def thread_proc(self):
+        with self.lock:
+            self.startup()
         while True:
             with self.lock:
-                rlist   = tuple(self.rlist)
-                wlist   = tuple(self.wlist)
-                xlist   = tuple(self.xlist)
-                timeout = self.tq.timeUntilNext()
+                timeout = 0
+                while timeout == 0:
+                    self.tq.wake()
+                    rlist, wlist, xlist = map(tuple, (self.rlist, self.wlist, self.xlist))
+                    timeout = self.tq.timeUntilNext()
             rlist, wlist, xlist = select.select(rlist, wlist, xlist, timeout)
             with self.lock:
                 for fd in rlist:
@@ -60,6 +66,8 @@ class SelectorBlock(Block):
                 while self.conditionQueue:
                     if self.condition(self.conditionQueue.get()):
                         return
+        with self.lock:
+            self.shutdown()
 
     def start(self):
         with self.lock:
@@ -95,9 +103,15 @@ class SelectorBlock(Block):
             self.closeOutput()
             self.closeInput()
             return True
-        elif cond == self.UpdatedTimerCondition:
-            pass
+        if cond == self.UpdatedTimerCondition:
+            return False
         return False
+
+    def startup(self):
+        pass
+
+    def shutdown(self):
+        self.conditionQueue.clear()
 
     def insertTimer(self, cb, delay=None, when=None):
         with self.lock:

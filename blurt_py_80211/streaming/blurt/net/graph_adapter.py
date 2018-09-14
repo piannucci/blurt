@@ -1,8 +1,8 @@
 from ..graph import Output, Input, Block
-from ..graph.threaded import SelectorBlock
+from ..graph.selector import Selector
 from ..mac.lowpan import Packet
 
-class TunnelSource(SelectorBlock):
+class TunnelSource(Block, Selector):
     inputs = []
     outputs = [Output(Packet, ())]
 
