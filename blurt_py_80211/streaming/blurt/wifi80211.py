@@ -8,7 +8,8 @@ import binascii
 from .net import utun
 from .mac import lowpan
 from .graph import Graph
-from .graph.tee import Arbiter
+from .graph.tee import Tee, Arbiter
+from .graph.fileio import FileSink
 from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter
 from .audio import InStream_SourceBlock, OutStream_SinkBlock, IOSession_Block
 from .audio import AudioHardware as AH
@@ -22,6 +23,7 @@ mtu = 76
 _channel = Channel(48e3, 17.0e3, 8)
 audioFrameSize = 256
 vuThresh = 25
+recordToFile = False
 
 ############################ Audio ############################
 
@@ -41,12 +43,16 @@ class BlurtTransceiver:
             self.ios.negotiateFormat(AH.kAudioObjectPropertyScopeInput,
                 minimumSampleRate=rxchannel.Fs, maximumSampleRate=rxchannel.Fs, inBufSize=audioFrameSize)
             self.ios_b = IOSession_Block(self.ios)
+            self.inputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeInput)
             self.outputChannels = self.ios.nChannelsPerFrame(AH.kAudioObjectPropertyScopeOutput)
             tunnels = list(utun_by_ll_addr.values())
             utun_other = dict(zip(tunnels, tunnels[::-1]))
             self.agc = MicrophoneAGCAdapter()
             self.csma = CSMAOutStreamAdapter(self.agc, vuThresh, self.outputChannels)
             self.is_b = InStream_SourceBlock(self.ios)
+            if recordToFile:
+                self.tee_b = Tee(2)
+                self.filesink_b = FileSink('in_stream.s16_%d' % self.inputChannels)
             self.os_b = OutStream_SinkBlock()
             self.decoder_b = IEEE80211aDecoderBlock(rxchannel)
             self.encoder_b = IEEE80211aEncoderBlock(txchannel)
@@ -65,7 +71,12 @@ class BlurtTransceiver:
                 # ios -> agc -> is_b -> decoder_b -> dispatch_b -> reassembly_b -> sink_b
                 self.ios.inStream = self.agc
                 self.agc.stream = self.is_b
-                self.is_b.connect(0, self.decoder_b, 0)
+                if recordToFile:
+                    self.is_b.connect(0, self.tee_b, 0)
+                    self.tee_b.connect(0, self.decoder_b, 0)
+                    self.tee_b.connect(1, self.filesink_b, 0)
+                else:
+                    self.is_b.connect(0, self.decoder_b, 0)
                 self.decoder_b.connect(0, self.dispatch_b, 0)
                 self.dispatch_b.connectAll({utun.ll_addr:reassembly_b for utun, reassembly_b in zip(tunnels, self.reassemblers)})
                 for reassembly_b, sink_b in zip(self.reassemblers, self.tunnelSinks):
