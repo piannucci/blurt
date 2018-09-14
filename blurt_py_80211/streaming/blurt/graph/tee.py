@@ -3,14 +3,15 @@ import warnings
 from .graph import Output, Input, Block, OverrunWarning
 
 class Tee(Block):
+    inputs = [Input('shape')]
+
     def __init__(self, n, dtype=None):
-        self.inputs = [Input('shape')]
-        self.outputs = [Output(dtype, 'shape')]
+        self.outputs = [Output(dtype, 'shape')] * n
         super().__init__()
 
     def process(self):
         for item, in self.input():
-            self.output([item for oq in self.output_queues])
+            self.output((item,) * len(self.output_queues))
 
 class Arbiter(Block):
     def __init__(self, n, dtype=None):

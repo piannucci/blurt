@@ -61,8 +61,10 @@ class Block:
         if not any(iq.full() for iq in self.output_queues):
             for oq, it in zip(self.output_queues, items):
                 oq.put_nowait(it)
+            return True
         else:
             warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+            return False
 
 class Graph:
     def __init__(self, sourceBlocks):
