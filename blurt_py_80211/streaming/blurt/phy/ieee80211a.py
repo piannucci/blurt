@@ -44,7 +44,8 @@ class Clause18Decoder:
             if self.size > ofdm.L.N_training_samples:
                 self.training_data, self.i = ofdm.L.train(self.y)
                 syms = self.y[self.i:self.i+(self.y.shape[0]-self.i)//nsym*nsym]
-                self.syms = ofdm.L.ekfDecoder(syms.reshape(-1, nsym, self.nChannelsPerFrame), self.i, self.training_data)
+                syms = syms.reshape(-1, nsym, self.nChannelsPerFrame)
+                self.syms = ofdm.L.ekfDecoder(syms, self.i, self.training_data)
                 self.trained = True
             else:
                 return
@@ -69,7 +70,7 @@ class Clause18Decoder:
                 self.Ncbps = ofdm.L.Nsc * self.rate.Nbpsc
                 self.length_symbols = int((self.length_coded_bits+self.Ncbps-1) // self.Ncbps)
                 SIGNAL_coded_bits = interleave(cc.encode((SIGNAL_bits >> np.arange(24)) & 1), ofdm.L.Nsc, 1)
-                self.dispersion = (lsig-(SIGNAL_coded_bits*2.-1.)).var()
+                self.dispersion = abs((lsig-(SIGNAL_coded_bits*2.-1.))**2).mean()
                 self.j = 1
             else:
                 return
