@@ -11,6 +11,9 @@ def downconvert(y, k, Omega):
     return y * np.exp(-1j*Omega*np.r_[k:k+y.shape[0]])[:,None]
 
 class OFDM:
+    def __init__(self):
+        self.trainingSearchRadius = 16
+
     def encodeSymbols(self, symbols, oversample, reps=1):
         assert np.ndim(symbols) == 3
         # shape of symbols should be (time, frequency, spatial stream)
@@ -53,7 +56,7 @@ class OFDM:
 
     @property
     def N_training_samples(self):
-        return self.N_sts_samples + self.ts_reps * self.nsym + 8
+        return self.N_sts_samples + self.ts_reps * self.nsym + self.trainingSearchRadius + self.nsym # include SIGNAL frame
 
     def train(self, y):
         nfft = self.nfft
@@ -68,15 +71,21 @@ class OFDM:
         lts = np.fft.fft(downconvert(y[i:i+nfft*ts_reps], i, Omega).reshape(-1, nfft, Nss), axis=1)
         Omega += estimate_cfo(lts * (self.lts_freq != 0)[:,None], 1, nfft)
         def wienerFilter(i):
+            # train (lts symbols)
             lts = np.fft.fft(downconvert(y[i:i+nfft*ts_reps], i, Omega).reshape(-1, nfft, Nss), axis=1)
             X = self.lts_freq[:,None]
             Y = lts.sum(0)
             YY = (lts[:,:,:,None] * lts[:,:,None,:].conj()).sum(0)
             YY_inv = np.linalg.pinv(YY, 1e-3)
             G = np.einsum('ij,ik,ikl->ijl', X, Y.conj(), YY_inv)
-            snr = Nss/(abs(np.einsum('ijk,lik->lij', G, lts) - X[None,:,:])**2).mean()
-            return snr, i + nfft*ts_reps, G
-        snr, i, G = max(map(wienerFilter, range(i-8, i+8)))
+            i += nfft*ts_reps
+            # test (SIGNAL symbol)
+            Y = np.fft.fft(downconvert(y[i+ncp:i+nfft+ncp], i, Omega).reshape(-1,nfft,Nss), axis=1)
+            Xhat = np.einsum('ijk,lik->lij', G, Y)
+            X = np.sign(Xhat.real)
+            snr = Nss/(abs(Xhat - X)**2).mean()
+            return snr, i, G
+        snr, i, G = max(map(wienerFilter, range(i-self.trainingSearchRadius, i+self.trainingSearchRadius)))
         i_sts_start = i - ncp*ts_reps - N_sts_samples
         i_lts_end = i + nfft*ts_reps
         var_input = y[i_sts_start:i_lts_end].var()

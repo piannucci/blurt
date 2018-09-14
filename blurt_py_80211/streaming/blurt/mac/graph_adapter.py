@@ -51,7 +51,7 @@ class ReassemblyBlock(Block):
 
     def process(self):
         for (packet, lsnr), in self.input():
-            print('audio -> lowpan (%d bytes) (%10f dB)' % (len(packet), lsnr))
+            print('audio -> lowpan (%d bytes) (%10f dB)' % (12+len(packet), lsnr))
             self.pdb.dispatchFragmentedPDU(packet)
 
     def dispatchIPv6PDU(self, packet):
