@@ -103,7 +103,7 @@ class PDB:
                 del rb[k]
 
     def dispatchFragment(self, k: ReassemblyKey, f: ReassemblyFragment):
-        t = time.time()
+        t = time.monotonic()
         self.purgeOlderThan(t - self.reassembly_timeout)
         rb = self.reassembly_buffers
         if k not in rb:
