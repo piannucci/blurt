@@ -66,8 +66,6 @@ class Block:
             return False
 
 class Graph:
-    WakeGraphCondition = object()
-
     def __init__(self, sourceBlocks, *, runloop=None):
         # check that source blocks have no inputs
         for b in sourceBlocks:
@@ -137,6 +135,7 @@ class Graph:
         self.runloop = runloop
         self.runloop.startup_handlers.append(self._startupHandler)
         self.runloop.shutdown_handlers.insert(0, self._shutdownHandler)
+        self.WakeGraphCondition = object()
         self.runloop.condition_handlers[self.WakeGraphCondition] = self._wakeHandler
         self.start = self.runloop.start
         self.stop = self.runloop.stop
@@ -145,7 +144,7 @@ class Graph:
         self.runloop.postCondition(self.WakeGraphCondition)
 
     def _startupHandler(self):
-        self.runloop.postCondition(self.WakeGraphCondition)
+        self.notify()
         for b in self.allBlocks:
             b.start()
 
