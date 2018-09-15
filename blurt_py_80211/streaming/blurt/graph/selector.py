@@ -2,7 +2,6 @@ import os
 import collections
 import threading
 import select
-import itertools
 from .timers import TimerQueue
 
 class PipeQueue:
@@ -30,9 +29,8 @@ class PipeQueue:
         return bool(self.q)
 
 class Selector:
-    conditionEnum = itertools.count()
-    QuitCondition = next(conditionEnum)
-    UpdatedTimerCondition = next(conditionEnum)
+    QuitCondition = object()
+    UpdatedTimerCondition = object()
 
     def __init__(self):
         super().__init__()
@@ -40,34 +38,50 @@ class Selector:
         self.conditionQueue = PipeQueue()
         self.stopping = False
         self.running = False
-        self.rlist = [self.conditionQueue]
-        self.wlist = []
-        self.xlist = []
+        self.rlist = {self.conditionQueue : self._conditionHandler}
+        self.wlist = {}
+        self.xlist = {}
         self.tq = TimerQueue()
+        self.startup_handlers = []
+        self.shutdown_handlers = []
+        self.condition_handlers = {
+            self.QuitCondition: self._quitHandler,
+        }
+
+    def _quitHandler(self):
+        self.closeOutput()
+        self.closeInput()
+        return True
+
+    def _conditionHandler(self):
+        while self.conditionQueue:
+            if self.condition_handlers.get(self.conditionQueue.get(), lambda : False)():
+                return
 
     def thread_proc(self):
         with self.lock:
-            self.startup()
+            for cb in self.startup_handlers:
+                cb()
         while True:
             with self.lock:
                 timeout = 0
                 while timeout == 0:
                     self.tq.wake()
-                    rlist, wlist, xlist = map(tuple, (self.rlist, self.wlist, self.xlist))
+                    rlist, wlist, xlist = self.rlist, self.wlist, self.xlist
                     timeout = self.tq.timeUntilNext()
-            rlist, wlist, xlist = select.select(rlist, wlist, xlist, timeout)
+            rlist_ready, wlist_ready, xlist_ready = \
+                select.select(tuple(rlist), tuple(wlist), tuple(xlist), timeout)
             with self.lock:
-                for fd in rlist:
-                    self.readReady(fd)
-                for fd in wlist:
-                    self.writeReady(fd)
-                for fd in xlist:
-                    self.exceptional(fd)
-                while self.conditionQueue:
-                    if self.condition(self.conditionQueue.get()):
-                        return
+                for fd in rlist_ready:
+                    rlist[fd]()
+                for fd in wlist_ready:
+                    wlist[fd]()
+                for fd in xlist_ready:
+                    xlist[fd]()
         with self.lock:
-            self.shutdown()
+            self.conditionQueue.clear()
+            for cb in self.shutdown_handlers:
+                cb()
 
     def start(self):
         with self.lock:
@@ -89,31 +103,7 @@ class Selector:
             self.running = False
             self.stopping = False
 
-    def readReady(self, fd):
-        pass
-
-    def writeReady(self, fd):
-        pass
-
-    def exceptional(self, fd):
-        pass
-
-    def condition(self, cond):
-        if cond == self.QuitCondition:
-            self.closeOutput()
-            self.closeInput()
-            return True
-        if cond == self.UpdatedTimerCondition:
-            return False
-        return False
-
-    def startup(self):
-        pass
-
-    def shutdown(self):
-        self.conditionQueue.clear()
-
-    def insertTimer(self, cb, delay=None, when=None):
+    def addTimer(self, cb, delay=None, when=None):
         with self.lock:
             timer = self.tq.insert(cb, delay, when)
             self.conditionQueue.put(self.UpdatedTimerCondition)
@@ -123,3 +113,7 @@ class Selector:
         with self.lock:
             self.tq.remove(timer)
             self.conditionQueue.put(self.UpdatedTimerCondition)
+
+    def postCondition(self, cond):
+        with self.lock:
+            self.conditionQueue.put(cond)

@@ -36,6 +36,7 @@ class GenericDecoderBlock(graph.Block):
         self.decoder_class = decoder_class
 
     def start(self):
+        super().start()
         self.detector = self.detector_class(self.nChannelsPerFrame, self.intermediate_upsample)
         self.decoders = []
         self.lookback = collections.deque()

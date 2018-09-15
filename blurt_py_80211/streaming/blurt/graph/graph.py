@@ -44,14 +44,13 @@ class Block:
     def connect(self, op, other, ip):
         self.connections.append((op, other, ip))
 
-    def notify(self):           # called by sources to wake the graph
-        self.graph.notify()
-
     def start(self):            # take any special actions for graph start
-        pass
+        self.notify = self.graph.notify
+        self.runloop = self.graph.runloop
 
     def stop(self):             # take any special actions for graph stop
-        pass
+        self.notify = None
+        self.runloop = None
 
     def input(self):
         while not any(iq.empty() for iq in self.input_queues):
@@ -66,11 +65,10 @@ class Block:
             warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
             return False
 
-class Graph(Selector):
-    WakeGraphCondition = next(Selector.conditionEnum)
+class Graph:
+    WakeGraphCondition = object()
 
     def __init__(self, sourceBlocks):
-        super().__init__()
         # check that source blocks have no inputs
         for b in sourceBlocks:
             if b.inputs:
@@ -133,27 +131,29 @@ class Graph(Selector):
         self.runningBlocks = set(self.allBlocks)
         for b in sourceBlocks:
             b.graph = self
+        # set up the event selector
+        self.runloop = Selector()
+        self.runloop.startup_handlers.append(self._startupHandler)
+        self.runloop.shutdown_handlers.insert(0, self._shutdownHandler)
+        self.runloop.condition_handlers[self.WakeGraphCondition] = self._wakeHandler
+        self.start = self.runloop.start
+        self.stop = self.runloop.stop
 
-    def startup(self):
-        super().startup()
-        self.conditionQueue.put(self.WakeGraphCondition)
+    def notify(self):
+        self.runloop.postCondition(self.WakeGraphCondition)
+
+    def _startupHandler(self):
+        self.runloop.postCondition(self.WakeGraphCondition)
         for b in self.allBlocks:
             b.start()
 
-    def shutdown(self):
+    def _shutdownHandler(self):
         for b in self.allBlocks:
             b.stop()
-        super().shutdown()
 
-    def notify(self):
-        with self.lock:
-            self.conditionQueue.put(self.WakeGraphCondition)
-
-    def condition(self, cond):
-        if cond == self.WakeGraphCondition:
-            for b in tuple(self.runningBlocks):
-                b.process()
-                if b.propagateClosure():
-                    self.runningBlocks.remove(b)
-            return not bool(self.runningBlocks)
-        return super().condition(cond)
+    def _wakeHandler(self):
+        for b in tuple(self.runningBlocks):
+            b.process()
+            if b.propagateClosure():
+                self.runningBlocks.remove(b)
+        return not bool(self.runningBlocks)

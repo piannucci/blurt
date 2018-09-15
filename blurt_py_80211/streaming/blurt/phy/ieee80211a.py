@@ -104,6 +104,7 @@ class IEEE80211aEncoderBlock(Block):
         self.preferredRate = 6
 
     def start(self):
+        super().start()
         self.k = 0 # LO phase
         self.lp = IIRFilter.lowpass(
             0.5*self.oversample/self.channel.upsample_factor,

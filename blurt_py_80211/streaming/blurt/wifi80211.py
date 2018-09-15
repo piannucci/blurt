@@ -92,15 +92,12 @@ class BlurtTransceiver:
                 self.ios.outStream = self.csma
             self.g = Graph(sources)
 
+        self.start = self.g.start
+        self.stop = self.g.stop
+
         # TODO
         # latency_us = (ios.inLatency+ios.outLatency) * ios.nsPerAbsoluteTick*1e-3
         # move IIR filters to end of transmit chain
-
-    def start(self):
-        self.g.start()
-
-    def stop(self):
-        self.g.stop()
 
 if __name__ == '__main__':
     u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))

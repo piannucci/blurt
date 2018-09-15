@@ -56,12 +56,8 @@ class BlurtTransceiver:
         for reassembly_b, sink_b in zip(self.reassemblers, self.tunnelSinks):
             reassembly_b.connect(0, sink_b, 0)
         self.g = Graph(self.tunnelSources)
-
-    def start(self):
-        self.g.start()
-
-    def stop(self):
-        self.g.stop()
+        self.start = self.g.start
+        self.stop = self.g.stop
 
 if __name__ == '__main__':
     u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))
