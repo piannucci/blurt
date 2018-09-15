@@ -10,6 +10,7 @@ from .mac import lowpan
 from .graph import Graph
 from .graph.tee import Tee, Arbiter
 from .graph.fileio import FileSink
+from .graph.selector import Selector
 from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter
 from .audio import InStream_SourceBlock, OutStream_SinkBlock, IOSession_Block
 from .audio import AudioHardware as AH
@@ -28,7 +29,7 @@ recordToFile = False
 ############################ Audio ############################
 
 class BlurtTransceiver:
-    def __init__(self, utun_by_ll_addr, txchannel, rxchannel):
+    def __init__(self, utun_by_ll_addr, txchannel, rxchannel, *, runloop=None):
         super().__init__()
         self.txchannel = txchannel
         self.rxchannel = rxchannel
@@ -90,7 +91,7 @@ class BlurtTransceiver:
                 self.encoder_b.connect(0, self.os_b, 0)
                 self.csma.stream = self.os_b
                 self.ios.outStream = self.csma
-            self.g = Graph(sources)
+            self.g = Graph(sources, runloop=runloop)
 
         self.start = self.g.start
         self.stop = self.g.stop
@@ -100,19 +101,23 @@ class BlurtTransceiver:
         # move IIR filters to end of transmit chain
 
 if __name__ == '__main__':
+    runloop = Selector()
     u1 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d1'))
     u2 = utun.utun(mtu=1280, ll_addr=binascii.unhexlify('0200c0f000d2'))
     class BlurtPDB(lowpan.PDB):
-        def __init__(self, utun: utun.utun):
-            super().__init__()
+        def __init__(self, utun: utun.utun, *, runloop=None):
+            super().__init__(runloop=runloop)
             self.utun = utun
             self.ll_mtu = mtu - 12 # room for src, dst link-layer address
     u1.pdb = BlurtPDB(u1)
     u2.pdb = BlurtPDB(u2)
     xcvr = BlurtTransceiver({
-        u1.ll_addr:u1,
-        u2.ll_addr:u2
-    }, _channel, _channel)
+            u1.ll_addr:u1,
+            u2.ll_addr:u2
+        },
+        _channel,
+        _channel,
+        runloop=runloop)
     xcvr.start()
     clearLine = '\r\x1b[2K'
     try:

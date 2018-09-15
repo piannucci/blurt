@@ -90,11 +90,12 @@ class PDB:
     reassembly_buffers: Dict[ReassemblyKey, ReassemblyState]
     reassembly_timeout: float
 
-    def __init__(self):
+    def __init__(self, *, runloop=None):
         self.next_tag = 0
         self.context = [DummyContext() for i in range(16)]
         self.reassembly_timeout = 60
         self.reassembly_buffers = {}
+        self.runloop = runloop
 
     def purgeOlderThan(self, t):
         rb = self.reassembly_buffers

@@ -12,6 +12,7 @@ class FragmentationBlock(Block):
     def __init__(self, pdb):
         super().__init__()
         self.pdb = pdb
+        self.pdb.injectMPDU = self._injectMPDU
 
     def process(self):
         for packet, in self.input():
@@ -19,6 +20,10 @@ class FragmentationBlock(Block):
             for f in fragments:
                 print('lowpan -> %d B' % (12+len(f),))
                 self.output((np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8),))
+
+    def _injectMPDU(self, mpdu):
+        self.output((mpdu,))
+        self.notify()
 
 class PacketDispatchBlock(Block):
     inputs = [Input(())]
@@ -47,12 +52,12 @@ class ReassemblyBlock(Block):
     def __init__(self, pdb):
         super().__init__()
         self.pdb = pdb
-        pdb.dispatchIPv6PDU = self.dispatchIPv6PDU
+        pdb.dispatchIPv6PDU = self._dispatchIPv6PDU
 
     def process(self):
         for (packet, lsnr), in self.input():
             print('audio -> lowpan (%d bytes) (%10f dB)' % (12+len(packet), lsnr))
             self.pdb.dispatchFragmentedPDU(packet)
 
-    def dispatchIPv6PDU(self, packet):
+    def _dispatchIPv6PDU(self, packet):
         self.output((packet,))

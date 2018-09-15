@@ -68,7 +68,7 @@ class Block:
 class Graph:
     WakeGraphCondition = object()
 
-    def __init__(self, sourceBlocks):
+    def __init__(self, sourceBlocks, *, runloop=None):
         # check that source blocks have no inputs
         for b in sourceBlocks:
             if b.inputs:
@@ -132,7 +132,9 @@ class Graph:
         for b in sourceBlocks:
             b.graph = self
         # set up the event selector
-        self.runloop = Selector()
+        if runloop is None:
+            runloop = Selector()
+        self.runloop = runloop
         self.runloop.startup_handlers.append(self._startupHandler)
         self.runloop.shutdown_handlers.insert(0, self._shutdownHandler)
         self.runloop.condition_handlers[self.WakeGraphCondition] = self._wakeHandler
