@@ -14,7 +14,7 @@ from .graph_adapter import GenericDecoderBlock
 
 Channel = collections.namedtuple('Channel', ['Fs', 'Fc', 'upsample_factor'])
 
-preemphasisOrder = 0
+preemphasis = -20 # dB / BW
 
 ############################ OFDM ############################
 
@@ -129,7 +129,7 @@ class IEEE80211aEncoderBlock(Block):
             parts = (ofdm.L.subcarriersFromBits(SIGNAL_bits, baseRate, 0),
                      ofdm.L.subcarriersFromBits(data_bits, rate, scrambler_state))
             oversample = self.oversample
-            output = ofdm.L.encode(parts, oversample, self.nChannelsPerFrame)
+            output = ofdm.L.encode(parts, oversample, self.nChannelsPerFrame, preemphasis)
             # inter-frame space
             output = np.concatenate((
                 output,
@@ -141,11 +141,6 @@ class IEEE80211aEncoderBlock(Block):
             Omega = 2*np.pi*channel.Fc/channel.Fs
             output = (output * np.exp(1j* Omega * np.r_[self.k:self.k+output.shape[0]])[:,None]).real
             self.k += output.shape[0]
-            if 0:
-                # pre-emphasize TODO make this work on output with shape[time,spatial stream]
-                for i in range(preemphasisOrder):
-                    output = np.diff(np.r_[output,0])
-                output *= abs(np.exp(1j*Omega)-1)**-preemphasisOrder
             # crest control
             output /= abs(output).max()
             self.output((output,))

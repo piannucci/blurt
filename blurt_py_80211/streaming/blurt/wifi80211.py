@@ -97,7 +97,7 @@ class BlurtTransceiver:
         self.stop = self.g.stop
 
         # TODO
-        # latency_us = (ios.inLatency+ios.outLatency) * ios.nsPerAbsoluteTick*1e-3
+        # latency = ios.inLatency+ios.outLatency
         # move IIR filters to end of transmit chain
 
 if __name__ == '__main__':

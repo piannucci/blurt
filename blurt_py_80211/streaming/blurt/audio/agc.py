@@ -31,7 +31,7 @@ class AGCInStreamAdapter(IOStream):
             self.target[AH.kAudioLevelControlPropertyDecibelValue] = self.curLevel
             self.historyTime.append(now)
             self.historyLevel.append(self.curLevel)
-            expirationTime = now - 100e6 / mach_time.nanosecondsPerAbsoluteTick()
+            expirationTime = now - 0.1
             expirationIndex = np.searchsorted(self.historyTime, expirationTime)
             self.historyTime  = self.historyTime[expirationIndex:]
             self.historyLevel = self.historyLevel[expirationIndex:]

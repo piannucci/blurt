@@ -162,7 +162,12 @@ class L(OFDM): # Legacy (802.11a) mode
         assert symbols.shape[2] == 1
         return symbols * np.exp(1j*2*np.pi*(np.arange(Nss)/Nss)[None,:]*(np.arange(self.nfft)/self.nfft)[:,None])
 
-    def encode(self, parts, oversample, Nss):
+    def emphasize(self, y, emphasis):
+        i = (np.arange(self.nfft) + self.nfft//2) % self.nfft - self.nfft//2
+        return y * 10**(i / self.nfft * (emphasis/20))[None,:,None]
+
+    def encode(self, parts, oversample, Nss, emphasis=0):
+        # emphasis is in units of dB (power) per bandwidth
         signal, data = parts
         subcarriers = np.concatenate((signal, data), axis=0)
         pilotPolarity = np.resize(scrambler.pilot_sequence, subcarriers.shape[0])
@@ -170,9 +175,9 @@ class L(OFDM): # Legacy (802.11a) mode
         symbols[:,self.dataSubcarriers] = subcarriers
         symbols[:,self.pilotSubcarriers] = self.pilotTemplate * (1. - 2.*pilotPolarity)[:,None]
         parts = []
-        parts.extend(self.encodeSymbols(self.csd(self.sts_freq[None,:,None], Nss), oversample, self.ts_reps))
-        parts.extend(self.encodeSymbols(self.csd(self.lts_freq[None,:,None], Nss), oversample, self.ts_reps))
-        parts.extend(self.encodeSymbols(self.csd(symbols[:,:,None], Nss), oversample))
+        parts.extend(self.encodeSymbols(self.csd(self.emphasize(self.sts_freq[None,:,None], emphasis), Nss), oversample, self.ts_reps))
+        parts.extend(self.encodeSymbols(self.csd(self.emphasize(self.lts_freq[None,:,None], emphasis), Nss), oversample, self.ts_reps))
+        parts.extend(self.encodeSymbols(self.csd(self.emphasize(symbols[:,:,None], emphasis), Nss), oversample))
         return self.blendSymbols(parts, oversample)
 
 class HT20(L): # High Throughput 20 MHz bandwidth

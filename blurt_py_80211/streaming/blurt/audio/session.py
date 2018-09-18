@@ -9,6 +9,7 @@ from .stream import IOStream, InArrayStream, OutArrayStream
 
 defInBufSize = defOutBufSize = 2048
 
+# all timestamps are compatible with time.monotonic(), which internally uses mach_absolute_time
 class IOSession:
     def __init__(self):
         self.cv = threading.Condition()
@@ -27,7 +28,6 @@ class IOSession:
             self.notifiers = {} # indexed by device, scope
             self.bufSize = {} # indexed by scope
             self.ioProc_ptr = AudioDeviceIOProc(self.ioProc)
-            self.nsPerAbsoluteTick = nanosecondsPerAbsoluteTick()
             self.inStream = None
             self.outStream = None
 
@@ -180,16 +180,16 @@ class IOSession:
                     result += self.vfActual[d, scope].mChannelsPerFrame
             return result
 
-    def start(self, inStream=None, outStream=None, startHostTime=None):
+    def start(self, inStream=None, outStream=None, startTime=None):
         with self.cv:
             if self.running:
                 return
-            if startHostTime is None:
-                startHostTime = mach_absolute_time()
+            if startTime is None:
+                startTime = time.monotonic()
             self.createAggregate()
             self.ioProcException = None
             self.running = True
-            self.ioStartHostTime = startHostTime
+            self.ioStartHostTime = monotonicToHostTime(startTime)
             if inStream is not None:
                 self.inStream = inStream
             if outStream is not None:
@@ -244,26 +244,26 @@ class IOSession:
                 asbd = self.device[kAudioStreamPropertyVirtualFormat, kAudioObjectPropertyScopeInput]
                 if not (inInputTime.mFlags & kAudioTimeStampHostTimeValid.value):
                     raise Exception('No host timestamps')
-                self.inLatency = inNow.mHostTime - inInputTime.mHostTime;
+                self.inLatency = (inNow.mHostTime - inInputTime.mHostTime) * d_monotonic_d_hostTime
                 samples = np.concatenate([arrayFromBuffer(inputBuffers[i], asbd) for i in range(inInputData.contents.mNumberBuffers)], 1)
                 nFrames = samples.shape[0]
-                ticksPerFrame = 1e9 / (asbd.mSampleRate * self.nsPerAbsoluteTick)
+                ticksPerFrame = d_hostTime_d_monotonic / asbd.mSampleRate
                 firstGoodSample = max(min((self.ioStartHostTime - inInputTime.mHostTime) / ticksPerFrame, nFrames), 0)
                 if firstGoodSample:
                     samples = samples[firstGoodSample:]
-                self.inStream.write(samples, inInputTime.mHostTime, inNow.mHostTime)
+                self.inStream.write(samples, hostTimeToMonotonic(inInputTime.mHostTime), hostTimeToMonotonic(inNow.mHostTime))
             if outOutputData and outOutputData.contents.mNumberBuffers:
                 inOutputTime = inOutputTime.contents
                 outputBuffers = cast(outOutputData.contents.mBuffers, POINTER(AudioBuffer))
                 asbd = self.device[kAudioStreamPropertyVirtualFormat, kAudioObjectPropertyScopeOutput]
                 if not (inOutputTime.mFlags & kAudioTimeStampHostTimeValid.value):
                     raise Exception('No host timestamps')
-                self.outLatency = inOutputTime.mHostTime - inNow.mHostTime;
+                self.outLatency = (inOutputTime.mHostTime - inNow.mHostTime) * d_monotonic_d_hostTime
                 b = outputBuffers[0]
                 nFrames = b.mDataByteSize // asbd.mBytesPerFrame
-                ticksPerFrame = 1e9 / (asbd.mSampleRate * self.nsPerAbsoluteTick)
+                ticksPerFrame = d_hostTime_d_monotonic / asbd.mSampleRate
                 firstGoodSample = max(min((self.ioStartHostTime - inOutputTime.mHostTime) / ticksPerFrame, nFrames), 0)
-                y = self.outStream.read(nFrames - firstGoodSample, inOutputTime.mHostTime, inNow.mHostTime)
+                y = self.outStream.read(nFrames - firstGoodSample, hostTimeToMonotonic(inOutputTime.mHostTime), hostTimeToMonotonic(inNow.mHostTime))
                 nFramesRead = y.shape[0]
                 nextChannel = 0
                 for i in range(outOutputData.contents.mNumberBuffers):

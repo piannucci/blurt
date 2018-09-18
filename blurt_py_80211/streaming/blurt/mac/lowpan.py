@@ -1,5 +1,5 @@
 import time
-from typing import Tuple, NamedTuple, List, Dict, Optional
+from typing import Tuple, NamedTuple, List, Dict, Optional, Any, Callable
 import numpy as np
 import binascii
 
@@ -11,7 +11,7 @@ def matches(a: bytes, mask: bytes, value: bytes):
 def modEUI64(la):
     return bytes([la[0] ^ 0x02]) + la[1:3] + b'\xff\xfe' + la[3:6]
 
-class ReassemblyKey(NamedTuple):
+class DatagramKey(NamedTuple):
     sa: bytes
     da: bytes
     size: int
@@ -24,6 +24,11 @@ class ReassemblyFragment(NamedTuple):
 class ReassemblyState(NamedTuple):
     start_time: float
     fragments: List[ReassemblyFragment]
+
+class DisassemblyState(NamedTuple):
+    start_time: float
+    fragments: List[bytes]
+    timers: List[Any] = []
 
 class DummyContext:
     def __init__(self):
@@ -87,7 +92,8 @@ class Packet:
 
 class PDB:
     macaddr: bytes
-    reassembly_buffers: Dict[ReassemblyKey, ReassemblyState]
+    reassembly_buffers: Dict[DatagramKey, ReassemblyState]
+    fragmentation_buffers: Dict[DatagramKey, DisassemblyState]
     reassembly_timeout: float
 
     def __init__(self, *, runloop=None):
@@ -95,6 +101,7 @@ class PDB:
         self.context = [DummyContext() for i in range(16)]
         self.reassembly_timeout = 60
         self.reassembly_buffers = {}
+        self.fragmentation_buffers = {}
         self.runloop = runloop
 
     def purgeOlderThan(self, t):
@@ -102,8 +109,12 @@ class PDB:
         for k,s in list(rb.items()):
             if s.start_time <= t:
                 del rb[k]
+        fb = self.fragmentation_buffers
+        for k,s in list(fb.items()):
+            if s.start_time <= t:
+                del fb[k]
 
-    def dispatchFragment(self, k: ReassemblyKey, f: ReassemblyFragment):
+    def recvFragment(self, k: DatagramKey, f: ReassemblyFragment):
         t = time.monotonic()
         self.purgeOlderThan(t - self.reassembly_timeout)
         rb = self.reassembly_buffers
@@ -135,7 +146,7 @@ class PDB:
             else: # no inline gaps
                 if last_end == k.size: # no trailing gap
                     del rb[k]
-                    return self.dispatchIPv6PDU(Packet(k.sa, k.da, b''.join(data for offset, data in fragments)))
+                    return self.sendMSDU(Packet(k.sa, k.da, b''.join(data for offset, data in fragments)))
             # gap detected
             return
         # imperfect overlap detected
@@ -145,10 +156,13 @@ class PDB:
         self.next_tag += 1
         return (self.next_tag - 1) & 0xffff
 
-    def dispatchIPv6PDU(self, p: Packet):
+    def sendMSDU(self, p: Packet):
         print('Found IPv6 datagram: ' + binascii.hexlify(p.tail()).decode())
 
-    def compressIPv6Datagram(self, p: Packet):
+    def sendMPDU(self, d: np.ndarray, cb: Callable[[float], None]):
+        pass
+
+    def recvMSDU(self, p: Packet):
         read, readOctets = p.readBits, p.readOctets
         header_stack = [] # contains tuples (encoding for NH=0, encoding for NH=1, uncompressed encoding, length of uncompressed data)
 
@@ -304,13 +318,14 @@ class PDB:
         divisible_part = b''.join(h[2] for h in header_stack[i:]) + payload
         divisible_part_offset = sum(h[3] for h in header_stack[:i])
         fragment = len(atomic_part) + len(divisible_part) > self.ll_mtu
+        datagram_size = len(p)
         if not fragment:
-            return [atomic_part + divisible_part]
+            fragments = [atomic_part + divisible_part]
+            datagram_tag = None
         else:
             slack = self.ll_mtu-len(atomic_part)-4
             assert slack >= 0
             split = slack & ~7
-            datagram_size = len(p)
             datagram_tag = self.nextFragmentTag()
             frag1 = bytes([
                 0b11000000 | (datagram_size >> 8) & 0x7, datagram_size & 0xff,
@@ -325,7 +340,12 @@ class PDB:
                 ]) + divisible_part[split+per_fragment*i:split+per_fragment*(i+1)]
                 for i in range((len(divisible_part)-split+per_fragment-1)//per_fragment)
             ]
-            return [frag1] + fragN
+            fragments = [frag1] + fragN
+        k = DatagramKey(p.ll_sa, p.ll_da, datagram_size, datagram_tag)
+        self.fragmentation_buffers[k] = DisassemblyState(time.monotonic(), fragments)
+        for i, f in enumerate(fragments):
+            print('lowpan -> %d B' % (12+len(f),))
+            self.sendMPDU(np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8))
 
     def compressIPv6SA(self, IPv6_SA: bytes, p: Packet):
         # 0-byte options
@@ -407,18 +427,18 @@ class PDB:
             # 16-byte options
             return 0b1000, 0, IPv6_DA
 
-    def dispatchFragmentedPDU(self, p: Packet):
+    def recvMPDU(self, p: Packet):
         dispatch = p.peekOctet()
         if dispatch & 0b11000000 == 0: # Not a LoWPAN frame
             return
         if dispatch == 0b01000001: # uncompressed IPv6 header
             p.readOctets(1)
-            return self.dispatchIPv6PDU(p)
+            return self.sendMSDU(p)
         if dispatch == 0b01000000: # ESC
             return
         if dispatch & 0b11100000 == 0b01100000: # LOWPAN_IPHC
             payload = self.decompressIPHCPDU(p, uncompressed_size=None)
-            return self.dispatchIPv6PDU(Packet(p.ll_sa, p.ll_da, payload))
+            return self.sendMSDU(Packet(p.ll_sa, p.ll_da, payload))
         if dispatch & 0b11011000 == 0b11000000: # FRAG1/FRAGN
             subsequent = (dispatch >> 5) & 1
             _, size, tag = p.readBits(5), p.readBits(11), p.readBits(16)
@@ -436,9 +456,9 @@ class PDB:
                     payload = self.decompressIPHCPDU(p, uncompressed_size=size)
                 else:
                     return
-            k = ReassemblyKey(p.ll_sa, p.ll_da, size, tag)
+            k = DatagramKey(p.ll_sa, p.ll_da, size, tag)
             f = ReassemblyFragment(offset, payload)
-            self.dispatchFragment(k, f)
+            self.recvFragment(k, f)
 
     def decompressHC1PDU(self, p: Packet):
         pass
@@ -640,7 +660,7 @@ def roundtrip_test(datagram: bytes):
     ll_sa = binascii.unhexlify('8c8590843fcc')
     ll_da = binascii.unhexlify('000000000000')
     pdb.ll_mtu = 65536
-    compressed = pdb.compressIPv6Datagram(Packet(ll_sa, ll_da, datagram))[0]
+    compressed = pdb.recvMSDU(Packet(ll_sa, ll_da, datagram))[0]
     decompressed = pdb.decompressIPHCPDU(Packet(ll_sa, ll_da, compressed), None)
     return decompressed == datagram
 
