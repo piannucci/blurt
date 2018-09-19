@@ -1,0 +1,271 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 48;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AE0D5C3B1BF7ED1B0046A82D /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = AE0D5C3A1BF7ED1B0046A82D /* AppDelegate.m */; };
+		AE0D5C3E1BF7ED1B0046A82D /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = AE0D5C3D1BF7ED1B0046A82D /* main.m */; };
+		AE0D5C4E1BF7EF250046A82D /* Visualization.m in Sources */ = {isa = PBXBuildFile; fileRef = AE0D5C4D1BF7EF250046A82D /* Visualization.m */; };
+		AE0D5C511BF8213E0046A82D /* SoundRecorder.m in Sources */ = {isa = PBXBuildFile; fileRef = AE0D5C501BF8213E0046A82D /* SoundRecorder.m */; };
+		AECDDE5C2152C96100E2D26D /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = AECDDE5B2152C96100E2D26D /* MainMenu.xib */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AE0D5C361BF7ED1B0046A82D /* glSpectrogram.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = glSpectrogram.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE0D5C391BF7ED1B0046A82D /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = SOURCE_ROOT; };
+		AE0D5C3A1BF7ED1B0046A82D /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = SOURCE_ROOT; };
+		AE0D5C3D1BF7ED1B0046A82D /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = SOURCE_ROOT; };
+		AE0D5C441BF7ED1B0046A82D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = SOURCE_ROOT; };
+		AE0D5C4C1BF7EF250046A82D /* Visualization.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Visualization.h; sourceTree = SOURCE_ROOT; };
+		AE0D5C4D1BF7EF250046A82D /* Visualization.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = Visualization.m; sourceTree = SOURCE_ROOT; };
+		AE0D5C4F1BF8213E0046A82D /* SoundRecorder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SoundRecorder.h; sourceTree = SOURCE_ROOT; };
+		AE0D5C501BF8213E0046A82D /* SoundRecorder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SoundRecorder.m; sourceTree = SOURCE_ROOT; };
+		AECDDE5B2152C96100E2D26D /* MainMenu.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AE0D5C331BF7ED1B0046A82D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AE0D5C2D1BF7ED1B0046A82D = {
+			isa = PBXGroup;
+			children = (
+				AECDDE5B2152C96100E2D26D /* MainMenu.xib */,
+				AE0D5C391BF7ED1B0046A82D /* AppDelegate.h */,
+				AE0D5C3A1BF7ED1B0046A82D /* AppDelegate.m */,
+				AE0D5C441BF7ED1B0046A82D /* Info.plist */,
+				AE0D5C3D1BF7ED1B0046A82D /* main.m */,
+				AE0D5C4C1BF7EF250046A82D /* Visualization.h */,
+				AE0D5C4D1BF7EF250046A82D /* Visualization.m */,
+				AE0D5C4F1BF8213E0046A82D /* SoundRecorder.h */,
+				AE0D5C501BF8213E0046A82D /* SoundRecorder.m */,
+				AE0D5C371BF7ED1B0046A82D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AE0D5C371BF7ED1B0046A82D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AE0D5C361BF7ED1B0046A82D /* glSpectrogram.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AE0D5C351BF7ED1B0046A82D /* glSpectrogram */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AE0D5C471BF7ED1B0046A82D /* Build configuration list for PBXNativeTarget "glSpectrogram" */;
+			buildPhases = (
+				AE0D5C321BF7ED1B0046A82D /* Sources */,
+				AE0D5C331BF7ED1B0046A82D /* Frameworks */,
+				AE0D5C341BF7ED1B0046A82D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = glSpectrogram;
+			productName = BlurtDemo;
+			productReference = AE0D5C361BF7ED1B0046A82D /* glSpectrogram.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AE0D5C2E1BF7ED1B0046A82D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 0800;
+				ORGANIZATIONNAME = MIT;
+				TargetAttributes = {
+					AE0D5C351BF7ED1B0046A82D = {
+						CreatedOnToolsVersion = 7.0;
+					};
+				};
+			};
+			buildConfigurationList = AE0D5C311BF7ED1B0046A82D /* Build configuration list for PBXProject "glSpectrogram" */;
+			compatibilityVersion = "Xcode 8.0";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = AE0D5C2D1BF7ED1B0046A82D;
+			productRefGroup = AE0D5C371BF7ED1B0046A82D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AE0D5C351BF7ED1B0046A82D /* glSpectrogram */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AE0D5C341BF7ED1B0046A82D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AECDDE5C2152C96100E2D26D /* MainMenu.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AE0D5C321BF7ED1B0046A82D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE0D5C3E1BF7ED1B0046A82D /* main.m in Sources */,
+				AE0D5C511BF8213E0046A82D /* SoundRecorder.m in Sources */,
+				AE0D5C4E1BF7EF250046A82D /* Visualization.m in Sources */,
+				AE0D5C3B1BF7ED1B0046A82D /* AppDelegate.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AE0D5C451BF7ED1B0046A82D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		AE0D5C461BF7ED1B0046A82D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		AE0D5C481BF7ED1B0046A82D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.mit.glSpectrogram;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		AE0D5C491BF7ED1B0046A82D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = edu.mit.glSpectrogram;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AE0D5C311BF7ED1B0046A82D /* Build configuration list for PBXProject "glSpectrogram" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AE0D5C451BF7ED1B0046A82D /* Debug */,
+				AE0D5C461BF7ED1B0046A82D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AE0D5C471BF7ED1B0046A82D /* Build configuration list for PBXNativeTarget "glSpectrogram" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AE0D5C481BF7ED1B0046A82D /* Debug */,
+				AE0D5C491BF7ED1B0046A82D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AE0D5C2E1BF7ED1B0046A82D /* Project object */;
+}

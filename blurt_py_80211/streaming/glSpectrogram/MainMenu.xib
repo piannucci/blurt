@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="11201" systemVersion="15G1004" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="11201"/>
+        <capability name="Constraints with non-1.0 multipliers" minToolsVersion="5.1"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
+            <connections>
+                <outlet property="delegate" destination="Voe-Tx-rLC" id="GzC-gU-4Uq"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <customObject id="Voe-Tx-rLC" customClass="AppDelegate">
+            <connections>
+                <outlet property="glView" destination="1S0-m5-J3H" id="mvP-q2-X6L"/>
+                <outlet property="window" destination="QvC-M9-y7g" id="gIp-Ho-8D9"/>
+            </connections>
+        </customObject>
+        <customObject id="YLy-65-1bz" customClass="NSFontManager"/>
+        <menu title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
+            <items>
+                <menuItem title="glSpectrogram" id="1Xt-HY-uBw">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="glSpectrogram" systemMenu="apple" id="uQy-DD-JDr">
+                        <items>
+                            <menuItem title="About glSpectrogram" id="5kV-Vb-QxS">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="orderFrontStandardAboutPanel:" target="-1" id="Exp-CZ-Vem"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="VOq-y0-SEH"/>
+                            <menuItem title="Preferences…" keyEquivalent="," id="BOF-NM-1cW"/>
+                            <menuItem isSeparatorItem="YES" id="wFC-TO-SCJ"/>
+                            <menuItem title="Services" id="NMo-om-nkz">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <menu key="submenu" title="Services" systemMenu="services" id="hz9-B4-Xy5"/>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="4je-JR-u6R"/>
+                            <menuItem title="Hide glSpectrogram" keyEquivalent="h" id="Olw-nP-bQN">
+                                <connections>
+                                    <action selector="hide:" target="-1" id="PnN-Uc-m68"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Hide Others" keyEquivalent="h" id="Vdr-fp-XzO">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="hideOtherApplications:" target="-1" id="VT4-aY-XCT"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Show All" id="Kd2-mp-pUS">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="unhideAllApplications:" target="-1" id="Dhg-Le-xox"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="kCx-OE-vgT"/>
+                            <menuItem title="Quit glSpectrogram" keyEquivalent="q" id="4sb-4s-VLi">
+                                <connections>
+                                    <action selector="terminate:" target="-1" id="Te7-pn-YzF"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="View" id="H8h-7b-M4v">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="View" id="HyV-fh-RgO">
+                        <items>
+                            <menuItem title="Show Toolbar" keyEquivalent="t" id="snW-S8-Cw5">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="toggleToolbarShown:" target="-1" id="BXY-wc-z0C"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Customize Toolbar…" id="1UK-8n-QPP">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="runToolbarCustomizationPalette:" target="-1" id="pQI-g3-MTW"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Window" id="vxB-9f-h9I">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Window" systemMenu="window" id="b0c-Mg-cv6">
+                        <items>
+                            <menuItem title="Close" keyEquivalent="w" id="Dzo-1G-dvs">
+                                <connections>
+                                    <action selector="performClose:" target="-1" id="dtP-pQ-uLy"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Minimize" keyEquivalent="m" id="qmC-gh-c7A">
+                                <connections>
+                                    <action selector="performMiniaturize:" target="-1" id="SFa-wx-SlG"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Zoom" keyEquivalent="z" id="Fsr-jh-d2c">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="performZoom:" target="-1" id="aL7-da-OPg"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="ZoU-F9-Uek"/>
+                            <menuItem title="Bring All to Front" id="w2h-CZ-xXB">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="arrangeInFront:" target="-1" id="ZtD-jL-Oec"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Help" id="wpr-3q-Mcd">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Help" systemMenu="help" id="F2S-fz-NVQ">
+                        <items>
+                            <menuItem title="glSpectrogram Help" keyEquivalent="?" id="FKE-Sm-Kum">
+                                <connections>
+                                    <action selector="showHelp:" target="-1" id="y7X-2Q-9no"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+            </items>
+            <point key="canvasLocation" x="35" y="-308"/>
+        </menu>
+        <window title="glSpectrogram" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" restorable="NO" oneShot="NO" animationBehavior="none" id="QvC-M9-y7g">
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" resizable="YES" fullSizeContentView="YES"/>
+            <windowCollectionBehavior key="collectionBehavior" fullScreenPrimary="YES"/>
+            <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" bottomStrut="YES"/>
+            <rect key="contentRect" x="0.0" y="0.0" width="1453" height="913"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1440" height="877"/>
+            <view key="contentView" canDrawConcurrently="YES" id="EiT-Mj-1SZ">
+                <rect key="frame" x="0.0" y="0.0" width="1453" height="913"/>
+                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                <subviews>
+                    <openGLView canDrawConcurrently="YES" colorSize="8bit_RGB" useAuxiliaryDepthBufferStencil="NO" useDoubleBufferingEnabled="YES" allowOffline="YES" wantsBestResolutionOpenGLSurface="YES" translatesAutoresizingMaskIntoConstraints="NO" id="1S0-m5-J3H" customClass="Visualization">
+                        <rect key="frame" x="85" y="24" width="1344" height="864"/>
+                    </openGLView>
+                    <customView translatesAutoresizingMaskIntoConstraints="NO" id="asx-JA-YPm">
+                        <rect key="frame" x="24" y="48" width="61" height="1042"/>
+                        <subviews>
+                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="kC9-o8-Hn6">
+                                <rect key="frame" x="-1" y="834" width="48" height="17"/>
+                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="48 kHz" id="rJo-3Z-eHK">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="xCq-MG-tBh">
+                                <rect key="frame" x="-1" y="625" width="48" height="17"/>
+                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="36 kHz" id="953-8f-pFz">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="Kid-Ng-qJW">
+                                <rect key="frame" x="0.0" y="417" width="47" height="17"/>
+                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="24 kHz" id="rWu-K8-LQ4">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="4wa-dM-3Hl">
+                                <rect key="frame" x="2" y="208" width="45" height="17"/>
+                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="12 kHz" id="Z4T-Ec-Bnq">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="EMF-JB-on2">
+                                <rect key="frame" x="7" y="0.0" width="40" height="17"/>
+                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="0 kHz" id="cGi-Ib-nwf">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                        </subviews>
+                        <constraints>
+                            <constraint firstAttribute="bottom" secondItem="kC9-o8-Hn6" secondAttribute="bottom" multiplier="5:1" id="614-Si-Z2r"/>
+                            <constraint firstItem="xCq-MG-tBh" firstAttribute="trailing" secondItem="kC9-o8-Hn6" secondAttribute="trailing" id="6g9-rl-1sO"/>
+                            <constraint firstItem="4wa-dM-3Hl" firstAttribute="trailing" secondItem="kC9-o8-Hn6" secondAttribute="trailing" id="8xW-JT-Ycs"/>
+                            <constraint firstItem="EMF-JB-on2" firstAttribute="trailing" secondItem="kC9-o8-Hn6" secondAttribute="trailing" id="NpU-1g-htu"/>
+                            <constraint firstAttribute="bottom" secondItem="4wa-dM-3Hl" secondAttribute="bottom" multiplier="5:4" id="ScD-gK-G9g"/>
+                            <constraint firstItem="kC9-o8-Hn6" firstAttribute="leading" secondItem="asx-JA-YPm" secondAttribute="leading" constant="1" id="U8a-7g-1ZU"/>
+                            <constraint firstAttribute="bottom" secondItem="EMF-JB-on2" secondAttribute="bottom" multiplier="5:5" id="Ue6-3l-31x"/>
+                            <constraint firstItem="Kid-Ng-qJW" firstAttribute="trailing" secondItem="kC9-o8-Hn6" secondAttribute="trailing" id="kgw-wZ-Yab"/>
+                            <constraint firstAttribute="bottom" secondItem="xCq-MG-tBh" secondAttribute="bottom" multiplier="5:2" id="p1h-8w-GBU"/>
+                            <constraint firstAttribute="trailing" secondItem="kC9-o8-Hn6" secondAttribute="trailing" constant="16" id="u7w-SF-n0q"/>
+                            <constraint firstAttribute="bottom" secondItem="Kid-Ng-qJW" secondAttribute="bottom" multiplier="5:3" id="wZd-HX-VzK"/>
+                        </constraints>
+                    </customView>
+                </subviews>
+                <constraints>
+                    <constraint firstAttribute="bottom" secondItem="1S0-m5-J3H" secondAttribute="bottom" constant="24" id="SZx-fa-4Sq"/>
+                    <constraint firstItem="1S0-m5-J3H" firstAttribute="leading" secondItem="asx-JA-YPm" secondAttribute="trailing" id="V81-TG-ESW"/>
+                    <constraint firstItem="1S0-m5-J3H" firstAttribute="height" secondItem="EiT-Mj-1SZ" secondAttribute="height" constant="-48" id="hVm-il-LxD"/>
+                    <constraint firstItem="asx-JA-YPm" firstAttribute="bottom" secondItem="1S0-m5-J3H" secondAttribute="bottom" constant="-24" id="kKA-Z1-EVy"/>
+                    <constraint firstAttribute="trailing" secondItem="1S0-m5-J3H" secondAttribute="trailing" constant="24" id="kZg-pT-SUW"/>
+                    <constraint firstItem="asx-JA-YPm" firstAttribute="height" secondItem="1S0-m5-J3H" secondAttribute="height" multiplier="5:4" constant="-38" id="mKf-7h-4Ft"/>
+                    <constraint firstItem="asx-JA-YPm" firstAttribute="leading" secondItem="EiT-Mj-1SZ" secondAttribute="leading" constant="24" id="pRT-qB-m6l"/>
+                </constraints>
+            </view>
+            <point key="canvasLocation" x="599.5" y="231.5"/>
+        </window>
+    </objects>
+</document>
