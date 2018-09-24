@@ -3,6 +3,33 @@ from typing import Tuple, NamedTuple, List, Dict, Optional, Any, Callable
 import numpy as np
 import binascii
 
+# ACK on the wire:
+#     6 bytes   ll_sa
+#     6 bytes   ll_da
+#     2 bits    dispatch = {00}
+#     1 bit     gotFRAGN
+#     5 bits    bitmap[:5]
+#     2 bytes   tag
+#     present iff gotFRAGN==1:
+#         1 byte    minOffset or len(decode(FRAG1)) // 8
+#         16 bits   bitmap[5:21]
+#
+# Interpretation:
+#     If gotFRAGN == 0, bitmap is {10000...}.  Iff the datagram wasn't
+#     fragmented, then this is an ACK.  Iff the datagram was fragmented, then
+#     this is a retransmission request for all FRAGN; the receiver does not
+#     know how many fragments to expect.
+#
+#     If gotFRAGN == 1 and bitmap[0] == 0, then FRAG1 was not received, and
+#     bitmap[i+1] indicates whether FRAG{i + N_from_offset(minOffset)} was
+#     received.
+#
+#     If gotFRAGN == 1 and bitmap[0] == 1, then FRAG1 was received, and
+#     bitmap[N] indicates whether FRAGN was received.  The receiver knows size,
+#     per_fragment, and len(FRAG1), so it also knows nFragments.  This is an
+#     ACK iff all(packet[:nFragments]), otherwise it is a retransmission
+#     request.
+
 link_local_prefix = b'\xfe\x80\0\0\0\0\0\0'
 
 def matches(a: bytes, mask: bytes, value: bytes):
@@ -151,6 +178,7 @@ class PDB:
             return
         # imperfect overlap detected
         rb[k] = ReassemblyState(t, [f]) # purge reassembly buffer
+        # XXX set/reset acknowledgement timer for this flow
 
     def nextFragmentTag(self):
         self.next_tag += 1
@@ -345,6 +373,10 @@ class PDB:
         self.fragmentation_buffers[k] = DisassemblyState(time.monotonic(), fragments)
         for i, f in enumerate(fragments):
             print('lowpan -> %d B' % (12+len(f),))
+            def cb(output_complete_time):
+                # Gets called when we know the time fragment i will be transmitted.
+                # XXX self.runloop.addTimer(self._retryHandler, delay=2.)
+                pass
             self.sendMPDU(np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8))
 
     def compressIPv6SA(self, IPv6_SA: bytes, p: Packet):
@@ -430,6 +462,45 @@ class PDB:
     def recvMPDU(self, p: Packet):
         dispatch = p.peekOctet()
         if dispatch & 0b11000000 == 0: # Not a LoWPAN frame
+            # acknowledgement
+            p.readBits(2)
+            gotFRAGN = p.readBits(1)
+            bitmap = p.readBits(5)
+            datagram_tag = p.readBits(16)
+            if gotFRAGN:
+                minOffset = p.readBits(8)
+                bitmap |= p.readBits(16) << 5
+            else:
+                minOffset = 0
+            for ll_sa, ll_da, size, tag in self.fragmentation_buffers.keys():
+                if ll_sa == p.ll_sa and ll_da == p.ll_da and tag == datagram_tag:
+                    break
+            else:
+                return # we got nuthin'
+            k = DatagramKey(ll_sa, ll_da, size, tag)
+            start_time, fragments = self.fragmentation_buffers[k]
+            if bitmap == (1 << len(fragments)) - 1:
+                # ACK
+                # XXX cancel retry timer
+                del self.fragmentation_buffers[k]
+                return
+            if not gotFRAGN:
+                # XXX cancel retry timer for fragment[0]
+                # XXX retransmit fragments[1:]
+                # XXX reset retry timers for fragments[1:]
+                return
+            try:
+                i = [f[4] == minOffset for f in fragments].index(True)
+            except ValueError:
+                # retransmit fragments[:]
+                # XXX reset retry timers for fragments[:]
+                return
+            bitmap = (bitmap & 1) | (bitmap & ~1) << (i-1)
+            for i in range(len(fragments)):
+                if bitmap & (1<<i) == 0:
+                    # XXX retransmit fragment[i]
+                    # XXX reset retry timer for fragment[i]
+                    pass
             return
         if dispatch == 0b01000001: # uncompressed IPv6 header
             p.readOctets(1)
