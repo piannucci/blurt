@@ -5,6 +5,8 @@ import itertools
 import time
 import numpy as np
 import binascii
+import sys
+from . import io
 from .net import utun
 from .mac import lowpan
 from .graph import Graph
@@ -119,7 +121,6 @@ if __name__ == '__main__':
         _channel,
         runloop=runloop)
     xcvr.start()
-    clearLine = '\r\x1b[2K'
     try:
         while True:
             time.sleep(.05)
@@ -127,8 +128,7 @@ if __name__ == '__main__':
             bar = [' '] * 150
             bar[:vu] = ['.'] * vu
             bar[vuThresh+80] = '|'
-            print(clearLine + ''.join(bar) + ' %3d' % vu, end='')
+            sys.stderr.status(''.join(bar) + ' %3d' % vu)
     except KeyboardInterrupt:
         pass
-    print(clearLine, end='')
     xcvr.stop()

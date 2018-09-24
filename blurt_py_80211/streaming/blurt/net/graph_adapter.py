@@ -1,3 +1,4 @@
+import sys
 from ..graph import Port, Block
 from ..mac.lowpan import Packet
 
@@ -20,7 +21,7 @@ class TunnelSource(Block):
 
     def _readHandler(self):
         datagram = self.utun.read()
-        print('%s -> %d B' % (self.utun, len(datagram)))
+        print('%s -> %d B' % (self.utun, len(datagram)), file=sys.stderr)
         packet = Packet(self.utun.ll_addr, self.ll_da, datagram)
         if self.output((packet,)):
             self.notify()
@@ -36,5 +37,5 @@ class TunnelSink(Block):
     def process(self):
         for packet, in self.iterinput():
             datagram = packet.tail()
-            print('%5d B -> %s' % (len(datagram), self.utun))
+            print('%5d B -> %s' % (len(datagram), self.utun), file=sys.stderr)
             self.utun.write(datagram)

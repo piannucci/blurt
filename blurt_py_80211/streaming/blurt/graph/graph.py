@@ -1,8 +1,9 @@
+import sys
 import queue
 import threading
 from typing import Type, NamedTuple
 from .selector import Selector, Event
-from .typing import Subtype, All, UnsatisfiableError
+from .typing import Condition, Subtype, All, UnsatisfiableError
 
 class OverrunWarning(UserWarning):
     pass
@@ -106,7 +107,7 @@ class Graph:
                 parents[bb].append(b)
                 parent_from_ip[bb, ip] = (b, op)
                 child_from_op[b, op] = (bb, ip)
-                print('Connection', b, op, bb, ip)
+                print('Connection', b, op, bb, ip, file=sys.stderr)
 
                 condition = Subtype(b.outputs[op].itemtype, bb.inputs[ip].itemtype)
                 conditions.append(Condition.bound_to(condition, b, bb))
@@ -159,13 +160,13 @@ class Graph:
         self.runloop = runloop
         self.runloop.startup_handlers.append(self._startupHandler)
         self.runloop.shutdown_handlers.insert(0, self._shutdownHandler)
-        self.WakeGraphCondition = Event(coalesce=True)
-        self.runloop.condition_handlers[self.WakeGraphCondition] = self._wakeHandler
+        self.WakeGraphEvent = Event(coalesce=True)
+        self.runloop.event_handlers.setdefault(self.WakeGraphEvent, set()).add(self._wakeHandler)
         self.start = self.runloop.start
         self.stop = self.runloop.stop
 
     def notify(self):
-        self.runloop.postCondition(self.WakeGraphCondition)
+        self.runloop.postCondition(self.WakeGraphEvent)
 
     def _startupHandler(self):
         self.notify()

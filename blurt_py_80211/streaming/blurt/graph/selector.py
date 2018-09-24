@@ -39,43 +39,43 @@ class Selector:
     def __init__(self):
         super().__init__()
         self.lock = threading.RLock()
-        self.conditionQueue = PipeQueue()
+        self.eventQueue = PipeQueue()
         self.stopping = False
         self.running = False
-        self.rlist = {self.conditionQueue : self._conditionHandler}
+        self.rlist = {self.eventQueue : self._eventHandler}
         self.wlist = {}
         self.xlist = {}
         self.tq = TimerQueue()
         self.startup_handlers = []
         self.shutdown_handlers = []
-        self.condition_handlers = {
-            self.QuitEvent: self._quitHandler,
+        self.event_handlers = {
+            self.QuitEvent: {self._quitHandler},
         }
 
     def _quitHandler(self):
-        self.closeOutput()
-        self.closeInput()
         return True
 
-    def _conditionHandler(self):
-        while self.conditionQueue:
+    def _eventHandler(self):
+        while self.eventQueue:
             uncoalesced = []
             coalesced = collections.OrderedDict()
-            while self.conditionQueue:
-                c = self.conditionQueue.get()
+            while self.eventQueue:
+                c = self.eventQueue.get()
                 if c.coalesce:
                     coalesced[c] = None
                 else:
                     uncoalesced.append(c)
             for c in list(coalesced) + uncoalesced:
-                if self.condition_handlers.get(c, lambda : False)():
-                    return
+                for cb in self.event_handlers.get(c, ()):
+                    if cb():
+                        self.threadStopping = True
 
     def thread_proc(self):
+        self.threadStopping = False
         with self.lock:
             for cb in self.startup_handlers:
                 cb()
-        while True:
+        while not self.threadStopping:
             with self.lock:
                 timeout = 0
                 while timeout == 0:
@@ -92,7 +92,7 @@ class Selector:
                 for fd in xlist_ready:
                     xlist[fd]()
         with self.lock:
-            self.conditionQueue.clear()
+            self.eventQueue.clear()
             for cb in self.shutdown_handlers:
                 cb()
 
@@ -109,7 +109,7 @@ class Selector:
             if self.stopping or not self.running:
                 return
             self.stopping = True
-            self.conditionQueue.put(self.QuitEvent)
+            self.eventQueue.put(self.QuitEvent)
         self.thread.join()
         with self.lock:
             assert self.running and self.stopping
@@ -119,14 +119,14 @@ class Selector:
     def addTimer(self, cb, delay=None, when=None):
         with self.lock:
             timer = self.tq.insert(cb, delay, when)
-            self.conditionQueue.put(self.UpdatedTimerEvent)
+            self.eventQueue.put(self.UpdatedTimerEvent)
             return timer
 
     def removeTimer(self, timer):
         with self.lock:
             self.tq.remove(timer)
-            self.conditionQueue.put(self.UpdatedTimerEvent)
+            self.eventQueue.put(self.UpdatedTimerEvent)
 
     def postCondition(self, cond):
         with self.lock:
-            self.conditionQueue.put(cond)
+            self.eventQueue.put(cond)

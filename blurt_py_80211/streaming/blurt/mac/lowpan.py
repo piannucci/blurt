@@ -1,3 +1,4 @@
+import sys
 import time
 from typing import Tuple, NamedTuple, List, Dict, Optional, Any, Callable
 import numpy as np
@@ -185,7 +186,7 @@ class PDB:
         return (self.next_tag - 1) & 0xffff
 
     def sendMSDU(self, p: Packet):
-        print('Found IPv6 datagram: ' + binascii.hexlify(p.tail()).decode())
+        print('Found IPv6 datagram: ' + binascii.hexlify(p.tail()).decode(), file=sys.stderr)
 
     def sendMPDU(self, d: np.ndarray, cb: Callable[[float], None]):
         pass
@@ -372,12 +373,12 @@ class PDB:
         k = DatagramKey(p.ll_sa, p.ll_da, datagram_size, datagram_tag)
         self.fragmentation_buffers[k] = DisassemblyState(time.monotonic(), fragments)
         for i, f in enumerate(fragments):
-            print('lowpan -> %d B' % (12+len(f),))
+            print('lowpan -> %d B' % (12+len(f),), file=sys.stderr)
             def cb(output_complete_time):
                 # Gets called when we know the time fragment i will be transmitted.
                 # XXX self.runloop.addTimer(self._retryHandler, delay=2.)
                 pass
-            self.sendMPDU(np.frombuffer(packet.ll_sa + packet.ll_da + f, np.uint8))
+            self.sendMPDU(np.frombuffer(p.ll_sa + p.ll_da + f, np.uint8))
 
     def compressIPv6SA(self, IPv6_SA: bytes, p: Packet):
         # 0-byte options
@@ -743,4 +744,4 @@ if __name__ == '__main__':
         '6000000000380001fe800000000000008e8590fffe843fccff0200000000000000000000000000163a000100050200008f00cfd70000000204000000ff0200000000000000000001ff843fcc04000000ff0200000000000000000001ffef0002',
         '6000000000240001fe800000000000008e8590fffe843fccff0200000000000000000000000000163a000100050200008f0012420000000104000000ff0200000000000000000001ffef0002',
         ]:
-        print(roundtrip_test(binascii.unhexlify(d)))
+        print(roundtrip_test(binascii.unhexlify(d)), file=sys.stderr)

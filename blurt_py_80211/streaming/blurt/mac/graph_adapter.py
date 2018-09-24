@@ -1,3 +1,4 @@
+import sys
 import warnings
 import queue
 import numpy as np
@@ -54,7 +55,7 @@ class ReassemblyBlock(Block):
 
     def process(self):
         for (packet, lsnr), in self.iterinput():
-            print('audio -> lowpan (%d bytes) (%10f dB)' % (12+len(packet), lsnr))
+            print('audio -> lowpan (%d bytes) (%10f dB)' % (12+len(packet), lsnr), file=sys.stderr)
             self.pdb.recvMPDU(packet)
 
     def _sendMSDU(self, packet):

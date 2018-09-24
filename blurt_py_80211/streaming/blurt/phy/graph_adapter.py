@@ -1,3 +1,4 @@
+import sys
 from typing import Tuple
 import collections
 import numpy as np
@@ -65,7 +66,7 @@ class GenericDecoderBlock(Block):
             for d in list(self.decoders):
                 result = d.process(y, self.k_current)
                 if result:
-                    print('recv psdu (%3d bytes, %2.5f dB)' % (len(result[0]), result[1]))
+                    print('recv psdu (%3d bytes, %2.5f dB)' % (len(result[0]), result[1]), file=sys.stderr)
                     self.output((result,))
                 if result is not None:
                     self.decoders.remove(d)

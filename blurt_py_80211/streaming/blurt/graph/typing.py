@@ -104,6 +104,7 @@ class Condition:
         raise TypeError()
 
     def sat(Φ, a=None):
+        # backtracking with unit propagation
         a = Assignment() if a is None else a
         Φ = a.evaluate(Φ)
         if Φ is True:

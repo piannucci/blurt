@@ -1,4 +1,5 @@
 import heapq
+import itertools
 import time
 
 class PQ:
