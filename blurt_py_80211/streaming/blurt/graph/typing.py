@@ -100,7 +100,7 @@ class Condition:
             yield self
         elif isinstance(self, (All, Any)):
             for c in self.clauses:
-                yield from literals(c)
+                yield from Condition.literals(c)
         raise TypeError()
 
     def sat(Φ, a=None):
@@ -329,6 +329,7 @@ class UnionFind:
         other = UnionFind()
         other.parent.update(self.parent)
         other.rank.update(self.rank)
+        return other
 
     def keys(self):
         return self.parent.keys()
@@ -377,6 +378,7 @@ class Assignment:
         other = super().__new__(self.__class__)
         other.sets = self.sets.copy()
         other.values = self.values.copy()
+        return other
 
     def evaluate(self, condition):
         if isinstance(condition, bool):
