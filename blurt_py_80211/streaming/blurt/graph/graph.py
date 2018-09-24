@@ -16,7 +16,7 @@ class Port(NamedTuple):
 
 class Connection(NamedTuple):
     op : int
-    other : Block
+    other : 'Block'
     ip : int
 
 class Block:
@@ -120,7 +120,7 @@ class Graph:
             raise ConnectionError(b, 'missing required input connection (or cycle)', ips)
 
         try:
-            Condition.sat(All(conditions)).apply()
+            Condition.sat(All(*conditions)).apply()
         except UnsatisfiableError:
             raise ConnectionError('Cannot satisfy type constraints', conditions)
 

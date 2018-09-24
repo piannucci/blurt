@@ -1,6 +1,6 @@
 import numpy as np
 import typing
-import abc
+import collections.abc
 
 class Cardinal(typing.TypeVar, _root=True):
     __slots__ = ('__value__')
@@ -45,6 +45,14 @@ class Variable(typing.NamedTuple):
         else:
             return Value(getattr(target, self.name))
 
+    def __hash__(self):
+        return hash((self.__class__, self.target_id, self.name))
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self.target is other.target and self.name == other.name
+
 
 class Value(typing.NamedTuple):
     value : object
@@ -54,19 +62,12 @@ class UnsatisfiableError(Exception):
     pass
 
 
-class Condition(abc.ABC):
-    @classmethod
-    def __subclasshook__(cls, C):
-        if cls is Condition:
-            if isinstance(C, bool):
-                return True
-        return NotImplemented
-
+class Condition:
     def reversed(self):
         if isinstance(self, bool):
             return self
         if isinstance(self, (Any, All)):
-            return self.__class__(Condition.reverse(c) for c in self.clauses)
+            return self.__class__(*(Condition.reversed(c) for c in self.clauses))
         if isinstance(self, Identity):
             return Identity(self.rhs, self.lhs)
         if isinstance(self, LeftAssignment):
@@ -80,7 +81,7 @@ class Condition(abc.ABC):
         if isinstance(self, bool):
             return self
         if isinstance(self, (Any, All)):
-            return self.__class__(Condition.bound_to(c, lhs, rhs) for c in self.clauses)
+            return self.__class__(*(Condition.bound_to(c, lhs, rhs) for c in self.clauses))
         if isinstance(self, Identity):
             lhs = self.lhs.bound_to(lhs)
             rhs = self.rhs.bound_to(rhs)
@@ -109,19 +110,23 @@ class Condition(abc.ABC):
             return a
         if Φ is False:
             raise UnsatisfiableError()
-        while True:
+        while not isinstance(Φ, bool):
             clauses = Φ.clauses if isinstance(Φ, All) else (Φ,)
-            units = [c for c in clauses if not isinstance(Φ, Any)]
+            units = [c for c in clauses if not isinstance(c, Any)]
             if not units:
                 break
             for l in units:
                 a.add_literal(l)
             Φ = a.evaluate(Φ)
+        if Φ is True:
+            return a
+        if Φ is False:
+            raise UnsatisfiableError()
         for l in Condition.literals(Φ):
             aa = a.copy()
             aa.add_literal(l)
             try:
-                return sat(Φ, aa)
+                return Condition.sat(Φ, aa)
             except UnsatisfiableError:
                 pass
         raise UnsatisfiableError()
@@ -151,9 +156,14 @@ class RightAssignment(typing.NamedTuple, Condition):
         return '(b.%s := %s)' % (self.rhs.name, self.lhs.value)
 
 
+def forwardRefToTypeVar(t):
+    return typing.TypeVar(t.__forward_arg__) if isinstance(t, typing.ForwardRef) else t
+
+
 class Equals:
     @staticmethod
     def fieldFromTypeArg(t):
+        t = forwardRefToTypeVar(t)
         if isinstance(t, (Variable, Value)):
             return t
         elif isinstance(t, Cardinal):
@@ -184,7 +194,7 @@ class All(Condition):
             cc
             for c in clauses
             for cc in (
-                c.clauses if isinstance(c, All) else c if hasattr(c, '__iter__') else (c,)
+                c.clauses if isinstance(c, All) else (c,)
             )
             if cc is not True
         ]
@@ -195,7 +205,7 @@ class All(Condition):
         elif any(c is False for c in clauses):
             return False
         else:
-            condition = super().__new__(self.__class__)
+            condition = super().__new__(cls)
             condition.clauses = clauses
             return condition
 
@@ -211,7 +221,7 @@ class Any(Condition):
             cc
             for c in clauses
             for cc in (
-                c.clauses if isinstance(c, Any) else c if hasattr(c, '__iter__') else (c,)
+                c.clauses if isinstance(c, Any) else (c,)
             )
             if cc is not False
         ]
@@ -223,9 +233,9 @@ class Any(Condition):
             return True
         elif any(isinstance(c, All) for c in clauses):
             # put in conjunctive normal form
-            return All(map(Any, itertools.product(*((c.clauses if isinstance(c, All) else (c,)) for c in clauses))))
+            return All(*map(Any, itertools.product(*((c.clauses if isinstance(c, All) else (c,)) for c in clauses))))
         else:
-            condition = super().__new__(self.__class__)
+            condition = super().__new__(cls)
             condition.clauses = clauses
             return condition
 
@@ -235,6 +245,8 @@ class Any(Condition):
 
 class Subtype:
     def __new__(cls, t1, t2):
+        t1 = forwardRefToTypeVar(t1)
+        t2 = forwardRefToTypeVar(t2)
         if isinstance(t1, str): t1 = typing.TypeVar(t1)
         if isinstance(t2, str): t2 = typing.TypeVar(t2)
 
@@ -248,7 +260,7 @@ class Subtype:
         right_types = t2.__args__ if isinstance(t2, typing._GenericAlias) and t2.__origin__ is typing.Union else (t2,)
 
         if len(left_types) * len(right_types) > 1:
-            return All(Any(Subtype(l, r) for r in right_types) for l in left_types)
+            return All(*(Any(*(Subtype(l, r) for r in right_types)) for l in left_types))
 
         if not isinstance(t1, typing._GenericAlias) or not isinstance(t2, typing._GenericAlias):
             return t1 == t2
@@ -262,15 +274,15 @@ class Subtype:
         if not issubclass(o1, o2):
             return False
 
-        if o1 is typing.Callable:
-            if o2 is not typing.Callable or len(a1) != len(a2):
+        if o1 is collections.abc.Callable:
+            if o2 is not collections.abc.Callable or len(a1) != len(a2):
                 return False
-            return All(Subtype(a1[-1], a2[-1]), (Condition.reverse(Subtype(aa2, aa1)) for aa1, aa2 in zip(a1[:-1], a2[:-1])))
+            return All(Subtype(a1[-1], a2[-1]), *(Condition.reversed(Subtype(aa2, aa1)) for aa1, aa2 in zip(a1[:-1], a2[:-1])))
 
         if o1 is tuple:
             if o2 is not tuple or len(a1) != len(a2):
                 return False
-            return All(Subtype(aa1, aa2) for aa1, aa2 in zip(a1, a2))
+            return All(*(Subtype(aa1, aa2) for aa1, aa2 in zip(a1, a2)))
 
         if o1 is Array:
             s1, vt1 = a1
@@ -279,7 +291,7 @@ class Subtype:
             s2 = s2.__args__
             if o2 is not Array or len(s1) != len(s2):
                 return False
-            return All((Equals(ss1, ss2) for ss1, ss2 in zip(s1, s2)), Equals(vt1, vt2))
+            return All(Equals(vt1, vt2), *(Equals(ss1, ss2) for ss1, ss2 in zip(s1, s2)))
 
         raise ValueError('Unhandled subtype condition: %s <= %s' % (t1, t2))
 
@@ -300,9 +312,9 @@ class UnionFind:
 
     def union(x, y):
         x, y = self.find(x), self.find(y)
-        if x is y
+        if x is y:
             return
-        if self.rank[x] < self.rank[y]
+        if self.rank[x] < self.rank[y]:
             self.parent[x] = y
             return y
         elif self.rank[x] > self.rank[y]:
@@ -370,7 +382,7 @@ class Assignment:
         if isinstance(condition, bool):
             return condition
         if isinstance(condition, (Any, All)):
-            return condition.__class__(self.evaluate(c) for c in condition.clauses)
+            return condition.__class__(*(self.evaluate(c) for c in condition.clauses))
         if isinstance(condition, Identity):
             lhs = self.sets.find(condition.lhs)
             rhs = self.sets.find(condition.rhs)

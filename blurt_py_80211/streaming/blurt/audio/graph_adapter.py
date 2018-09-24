@@ -1,7 +1,7 @@
 # adapter from audio stream to asynchronous graph
 import warnings
 import numpy as np
-from typing import Tuple, TypeVar
+from typing import Tuple
 import queue
 from . import AudioHardware as AH
 from ..graph import Port, Block, UnderrunWarning
@@ -9,9 +9,8 @@ from ..graph.typing import Array
 from .stream import IOStream
 
 class InStream_SourceBlock(IOStream, Block):
-    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
     inputs = []
-    outputs = [Port(Tuple[Array[[None, _nChannelsPerFrame], np.float32], float, float])]
+    outputs = [Port(Tuple[Array[[None, 'nChannelsPerFrame'], np.float32], float, float])]
 
     def __init__(self, ios):
         self.ios = ios
@@ -30,8 +29,7 @@ class InStream_SourceBlock(IOStream, Block):
         return self.output_queues[0].closed
 
 class OutStream_SinkBlock(IOStream, Block):
-    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
-    inputs = [Port(Array[[None, _nChannelsPerFrame], np.float32])]
+    inputs = [Port(Array[[None, 'nChannelsPerFrame'], np.float32])]
     outputs = []
 
     def __init__(self):
@@ -90,9 +88,8 @@ class IOSession_Block(Block):
 
 # software loopback
 class AudioBypass_Block(Block):
-    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
-    inputs = [Port(Array[[None, _nChannelsPerFrame], np.float32])]
-    outputs = [Port(Tuple[Array[[None, _nChannelsPerFrame], np.float32], float, float])]
+    inputs = [Port(Array[[None, 'nChannelsPerFrame'], np.float32])]
+    outputs = [Port(Tuple[Array[[None, 'nChannelsPerFrame'], np.float32], float, float])]
 
     def process(self):
         for frames, in self.iterinput():

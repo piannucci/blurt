@@ -1,4 +1,4 @@
-from typing import import Tuple, TypeVar
+from typing import Tuple
 import collections
 import numpy as np
 from ..graph import Port, Block
@@ -10,8 +10,7 @@ class GenericDecoderBlock(Block):
     A graph block that performs downconversion, downsampling, decoder
     instantiation, and lookback.
     """
-    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
-    inputs = [Port(Tuple[Array[[None, _nChannelsPerFrame], np.float32], float, float])]
+    inputs = [Port(Tuple[Array[[None, 'nChannelsPerFrame'], np.float32], float, float])]
     outputs = [Port(Tuple[Array[[None], np.uint8], float])]
 
     def __init__(self, channel, detector_class, decoder_class):

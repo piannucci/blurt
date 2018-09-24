@@ -4,11 +4,10 @@ import typing
 from .graph import Port, Block, OverrunWarning
 
 class Tee(Block):
-    _T = typing.TypeVar('T')
-    inputs = [Port(_T)]
+    inputs = [Port('T')]
 
     def __init__(self, n, dtype=None):
-        self.outputs = [Port(self._T)] * n
+        self.outputs = [Port('T')] * n
         super().__init__()
 
     def process(self):
@@ -16,11 +15,10 @@ class Tee(Block):
             self.output((item,) * len(self.output_queues))
 
 class Arbiter(Block):
-    _T = typing.TypeVar('T')
-    outputs = [Port(_T)]
+    outputs = [Port('T')]
 
     def __init__(self, n):
-        self.inputs = [Port(self._T) for i in range(n)]
+        self.inputs = [Port('T') for i in range(n)]
         super().__init__()
 
     def process(self):
@@ -36,10 +34,8 @@ class Arbiter(Block):
                 return
 
 class LambdaBlock(Block):
-    _T = typing.TypeVar('T')
-    _S = typing.TypeVar('S')
-    inputs = [Port(_T)]
-    outputs = [Port(_S)]
+    inputs = [Port('T')]
+    outputs = [Port('S')]
 
     def __init__(self, itype, otype, func):
         self.T = itype

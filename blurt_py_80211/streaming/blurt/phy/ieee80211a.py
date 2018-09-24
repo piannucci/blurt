@@ -1,7 +1,6 @@
 import collections
 import itertools
 import numpy as np
-from typing import import TypeVar
 from ..graph import Port, Block
 from ..graph.typing import Array
 from .iir import IIRFilter
@@ -95,9 +94,8 @@ class IEEE80211aDecoderBlock(GenericDecoderBlock):
         super().__init__(channel, correlator.Clause18Detector, Clause18Decoder)
 
 class IEEE80211aEncoderBlock(Block):
-    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
     inputs = [Port(Array[[None], np.uint8])]
-    outputs = [Port(Array[[None, _nChannelsPerFrame], np.float32])]
+    outputs = [Port(Array[[None, 'nChannelsPerFrame'], np.float32])]
 
     def __init__(self, channel, nChannelsPerFrame=2):
         super().__init__()
