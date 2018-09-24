@@ -2,10 +2,11 @@ import os
 import warnings
 import time
 import pickle
-from .graph import Input, Output, Block
+import typing
+from .graph import Port, Block
 
 class FileSink(Block):
-    inputs = [Input('shape')]
+    inputs = [Port(typing.Any)]
     outputs = []
 
     def __init__(self, fn):
@@ -13,14 +14,14 @@ class FileSink(Block):
         self.f = open(fn, 'wb')
 
     def process(self):
-        for item, in self.input():
+        for item, in self.iterinput():
             pickle.dump(item, self.f, -1)
 
 class FileSource(Block):
     # TODO don't load entire file into memory when rate is unlimited
-    def __init__(self, fn, dtype, shape, ratelimit=None, timeGranularity=.01):
+    def __init__(self, fn, itemtype, ratelimit=None, timeGranularity=.01):
         self.inputs = []
-        self.outputs = [Output(dtype, shape)]
+        self.outputs = [Port(itemtype)]
         super().__init__()
         if ratelimit is None:
             st = os.stat(fn)

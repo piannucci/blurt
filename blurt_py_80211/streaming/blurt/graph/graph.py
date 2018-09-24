@@ -1,5 +1,8 @@
 import queue
-from .selector import Selector
+import threading
+from typing import Type, NamedTuple
+from .selector import Selector, Event
+from .typing import Subtype, All, UnsatisfiableError
 
 class OverrunWarning(UserWarning):
     pass
@@ -7,13 +10,14 @@ class OverrunWarning(UserWarning):
 class UnderrunWarning(UserWarning):
     pass
 
-class Output:
-    def __new__(cls, dtype, shape):
-        return (dtype, shape)
+class Port(NamedTuple):
+    itemtype : Type
+    optional : bool = False
 
-class Input:
-    def __new__(cls, shape):
-        return (shape,)
+class Connection(NamedTuple):
+    op : int
+    other : Block
+    ip : int
 
 class Block:
     inputs = []                 # list of tuples (shape,)
@@ -42,7 +46,7 @@ class Block:
             iq.closed = True
 
     def connect(self, op, other, ip):
-        self.connections.append((op, other, ip))
+        self.connections.append(Connection(op, other, ip))
 
     def start(self):            # take any special actions for graph start
         self.notify = self.graph.notify
@@ -52,7 +56,7 @@ class Block:
         self.notify = None
         self.runloop = None
 
-    def input(self):
+    def iterinput(self):
         while not any(iq.empty() for iq in self.input_queues):
             yield tuple(iq.get_nowait() for iq in self.input_queues)
 
@@ -71,71 +75,91 @@ class Graph:
         for b in sourceBlocks:
             if b.inputs:
                 raise ConnectionError(b, 'source cannot have inputs')
+
         # get full list of blocks
-        allBlocks = set()
-        completeBlocks = set(sourceBlocks)
+        finished = set()
+        frontier = set(sourceBlocks)
         rank = {b:0 for b in sourceBlocks}
         parents = {b:() for b in sourceBlocks}
-        parent_from_ip = {} # parent from (other block, input port)
-        op_from_ip = {}     # output port from (other block, input port)
-        while completeBlocks:
-            b = completeBlocks.pop()
-            # b already has a rank and a parent list
-            parents[b] = tuple(set(parents[b]))                 # parent list immutable and unique
-            ops = sorted(op for op, other, ip in b.connections)
-            if ops != list(range(len(b.outputs))):              # outputs fully connected
-                raise ConnectionError(b, 'outputs', ops)
+        parent_from_ip = {} # (parent, output port) from (block, input port)
+        child_from_op = {}  # (child, input port) from (block, output port)
+        conditions = []
+
+        while frontier:
+            b = frontier.pop()
+
+            # b already has a rank and a parent list; make parent list immutable and unique
+            parents[b] = tuple(set(parents[b]))
+
+            # check output completeness
+            connected_ops = {op for op, other, ip in b.connections}
+            for op, o in enumerate(b.outputs):
+                if not o.optional and op not in connected_ops:
+                    raise ConnectionError(b, 'missing required output connection %d', op)
+
+            # process downstream connections
             for op, bb, ip in b.connections:
                 if bb not in rank:
                     rank[bb] = float('-inf')
                     parents[bb] = []
-                oshape = b.outputs[op][1]
-                if isinstance(oshape, str):
-                    oshape = getattr(b, oshape)
-                else:
-                    oshape = tuple(getattr(b, ol) if isinstance(ol, str) else ol for ol in oshape)
-                print('Connection', b, op, bb, ip)
-                ishape = bb.inputs[ip][0]
-                if isinstance(ishape, str):
-                    setattr(bb, ishape, oshape)
-                else:
-                    if len(oshape) != len(ishape):
-                        raise ConnectionError(b, 'ndim', op, bb, ip, oshape, ishape)
-                    for ol, il in zip(oshape, ishape):
-                        if isinstance(il, str):
-                            setattr(bb, il, ol)
-                        elif ol != il and ol != 1:
-                            raise ConnectionError(b, 'shape', op, bb, ip, oshape, ishape)
                 rank[bb] = max(rank[bb], rank[b]+1)
                 parents[bb].append(b)
-                parent_from_ip[bb, ip] = b
-                op_from_ip[bb, ip] = op
-                if len(parents[bb]) == len(bb.inputs):
-                    ips = sorted(ip for p in parents[bb] for op, other, ip in p.connections if other is bb)
-                    if ips != list(range(len(bb.inputs))):      # inputs fully connected
-                        raise ConnectionError(b, 'inputs', ips)
-                    completeBlocks.add(bb)
-            allBlocks.add(b)
-        if len(allBlocks) != len(rank):                         # some block has dangling (or extra) inputs
-            b = set(rank.keys()).difference(allBlocks).pop()
+                parent_from_ip[bb, ip] = (b, op)
+                child_from_op[b, op] = (bb, ip)
+                print('Connection', b, op, bb, ip)
+
+                condition = Subtype(b.outputs[op].itemtype, bb.inputs[ip].itemtype)
+                conditions.append(Condition.bound_to(condition, b, bb))
+
+                if all(i.optional or (bb,ip) in parent_from_ip for ip,i in enumerate(bb.inputs)):
+                    frontier.add(bb)
+            finished.add(b)
+
+        for b in set(rank.keys()) - finished:
             ips = sorted(ip for op, other, ip in b.connections)
-            raise ConnectionError(b, 'inputs (possible cycle)', ips)
-        self.allBlocks = tuple(sorted(allBlocks, key=rank.get))
-        for b in self.allBlocks:
-            b.output_queues = tuple(queue.Queue() for op in range(len(b.outputs)))
-            b.input_queues = tuple(parent_from_ip[b, ip].output_queues[op_from_ip[b, ip]] for ip in range(len(b.inputs)))
-            for oq in b.output_queues:
-                oq.closed = False
+            raise ConnectionError(b, 'missing required input connection (or cycle)', ips)
+
+        try:
+            Condition.sat(All(conditions)).apply()
+        except UnsatisfiableError:
+            raise ConnectionError('Cannot satisfy type constraints', conditions)
+
+        self.allBlocks = tuple(sorted(finished, key=rank.get))
         self.runningBlocks = set(self.allBlocks)
-        for b in sourceBlocks:
+        self.danglingQueues = []
+        for b in self.allBlocks:
             b.graph = self
+            b.input_queues = []
+            for ip,i in enumerate(b.inputs):
+                if (b, ip) in parent_from_ip:
+                    bb, op = parent_from_ip[b, ip]
+                    iq = bb.output_queues[op]
+                elif i.optional:
+                    iq = queue.Queue()
+                else:
+                    assert False, 'Missing required input connection should have been caught earlier'
+                b.input_queues.append(iq)
+            b.input_queues = tuple(b.input_queues)
+            b.output_queues = []
+            for op,o in enumerate(b.outputs):
+                oq = queue.Queue()
+                oq.closed = False
+                if (b, op) in child_from_op:
+                    pass
+                elif o.optional:
+                    self.danglingQueues.append(oq)
+                else:
+                    assert False, 'Missing required output connection should have been caught earlier'
+                b.output_queues.append(oq)
+            b.output_queues = tuple(b.output_queues)
+
         # set up the event selector
         if runloop is None:
             runloop = Selector()
         self.runloop = runloop
         self.runloop.startup_handlers.append(self._startupHandler)
         self.runloop.shutdown_handlers.insert(0, self._shutdownHandler)
-        self.WakeGraphCondition = object()
+        self.WakeGraphCondition = Event(coalesce=True)
         self.runloop.condition_handlers[self.WakeGraphCondition] = self._wakeHandler
         self.start = self.runloop.start
         self.stop = self.runloop.stop
@@ -153,8 +177,12 @@ class Graph:
             b.stop()
 
     def _wakeHandler(self):
-        for b in tuple(self.runningBlocks):
-            b.process()
-            if b.propagateClosure():
-                self.runningBlocks.remove(b)
+        for b in self.allBlocks:
+            if b in self.runningBlocks:
+                b.process()
+                if b.propagateClosure():
+                    self.runningBlocks.remove(b)
+        for q in self.danglingQueues:
+            while not q.empty():
+                q.get_nowait()
         return not bool(self.runningBlocks)

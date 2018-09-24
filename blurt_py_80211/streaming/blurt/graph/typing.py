@@ -1,16 +1,21 @@
 import numpy as np
 import typing
+import abc
 
 class Cardinal(typing.TypeVar, _root=True):
     __slots__ = ('__value__')
+
     def __init__(self, value):
         self.__value__ = value
         if not isinstance(value, int) or value <= 0:
             raise TypeError("Cardinal must be a positive integer")
+
     def __repr__(self):
         return 'Cardinal[%d]' % (self.__value__,)
+
     def __reduce__(self):
         return (Cardinal, (self.__value__,))
+
 
 class Array(typing.Generic[typing.TypeVar('shape'), typing.TypeVar('VT')]):
     def __class_getitem__(cls, params):
@@ -24,28 +29,165 @@ class Array(typing.Generic[typing.TypeVar('shape'), typing.TypeVar('VT')]):
             value_type = np.dtype(value_type).type
         return super().__class_getitem__((shape, value_type))
 
-class Equals:
-    __slots__ = ['t1', 't2']
-    def __new__(cls, t1, t2):
-        t1 = t1.__value__ if isinstance(t1, Cardinal) else t1.__name__ if isinstance(t1, typing.TypeVar) else t1
-        t2 = t2.__value__ if isinstance(t2, Cardinal) else t2.__name__ if isinstance(t2, typing.TypeVar) else t2
-        if isinstance(t1, int) and isinstance(t2, int):
-            return t1 == t2
-        if not isinstance(t1, (int, str)) and t1 is t2:
-            return True
-        condition = object.__new__(Equals)
-        condition.t1 = t1
-        condition.t2 = t2
-        return condition
-    def __repr__(self):
-        lhs = 'a.%s' % self.t1 if isinstance(self.t1, str) else str(self.t1)
-        rhs = 'b.%s' % self.t2 if isinstance(self.t2, str) else str(self.t2)
-        return '(%s == %s)' % (lhs, rhs)
 
-class All:
+class Variable(typing.NamedTuple):
+    target_id : int
+    name : str
+    target : object
+
+    def __repr__(self):
+        target = '*' if self.target is None else self.target
+        return '%s.%s' % (target, self.name)
+
+    def bound_to(self, target):
+        if not hasattr(target, self.name):
+            return Variable(id(target), self.name, target)
+        else:
+            return Value(getattr(target, self.name))
+
+
+class Value(typing.NamedTuple):
+    value : object
+
+
+class UnsatisfiableError(Exception):
+    pass
+
+
+class Condition(abc.ABC):
+    @classmethod
+    def __subclasshook__(cls, C):
+        if cls is Condition:
+            if isinstance(C, bool):
+                return True
+        return NotImplemented
+
+    def reversed(self):
+        if isinstance(self, bool):
+            return self
+        if isinstance(self, (Any, All)):
+            return self.__class__(Condition.reverse(c) for c in self.clauses)
+        if isinstance(self, Identity):
+            return Identity(self.rhs, self.lhs)
+        if isinstance(self, LeftAssignment):
+            return RightAssignment(self.rhs, self.lhs)
+        if isinstance(self, RightAssignment):
+            return LeftAssignment(self.rhs, self.lhs)
+        raise TypeError()
+
+    def bound_to(self, lhs, rhs):
+        # Attach specific namespaces to variable names
+        if isinstance(self, bool):
+            return self
+        if isinstance(self, (Any, All)):
+            return self.__class__(Condition.bound_to(c, lhs, rhs) for c in self.clauses)
+        if isinstance(self, Identity):
+            lhs = self.lhs.bound_to(lhs)
+            rhs = self.rhs.bound_to(rhs)
+        elif isinstance(self, LeftAssignment):
+            lhs = self.lhs.bound_to(lhs)
+            rhs = self.rhs
+        elif isinstance(self, RightAssignment):
+            lhs = self.lhs
+            rhs = self.rhs.bound_to(rhs)
+        else:
+            raise TypeError()
+        return Equals(lhs, rhs)
+
+    def literals(self):
+        if isinstance(self, (Identity, LeftAssignment, RightAssignment)):
+            yield self
+        elif isinstance(self, (All, Any)):
+            for c in self.clauses:
+                yield from literals(c)
+        raise TypeError()
+
+    def sat(Φ, a=None):
+        a = Assignment() if a is None else a
+        Φ = a.evaluate(Φ)
+        if Φ is True:
+            return a
+        if Φ is False:
+            raise UnsatisfiableError()
+        while True:
+            clauses = Φ.clauses if isinstance(Φ, All) else (Φ,)
+            units = [c for c in clauses if not isinstance(Φ, Any)]
+            if not units:
+                break
+            for l in units:
+                a.add_literal(l)
+            Φ = a.evaluate(Φ)
+        for l in Condition.literals(Φ):
+            aa = a.copy()
+            aa.add_literal(l)
+            try:
+                return sat(Φ, aa)
+            except UnsatisfiableError:
+                pass
+        raise UnsatisfiableError()
+
+
+class Identity(typing.NamedTuple, Condition):
+    lhs : Variable
+    rhs : Variable
+
+    def __repr__(self):
+        return '(a.%s == b.%s)' % (self.lhs.name, self.rhs.name)
+
+
+class LeftAssignment(typing.NamedTuple, Condition):
+    lhs : Variable
+    rhs : Value
+
+    def __repr__(self):
+        return '(a.%s := %s)' % (self.lhs.name, self.rhs.value)
+
+
+class RightAssignment(typing.NamedTuple, Condition):
+    lhs : Value
+    rhs : Variable
+
+    def __repr__(self):
+        return '(b.%s := %s)' % (self.rhs.name, self.lhs.value)
+
+
+class Equals:
+    @staticmethod
+    def fieldFromTypeArg(t):
+        if isinstance(t, (Variable, Value)):
+            return t
+        elif isinstance(t, Cardinal):
+            return Value(t.__value__)
+        elif isinstance(t, typing.TypeVar):
+            return Variable(0, t.__name__, None)
+        else:
+            return Value(t)
+
+    def __new__(cls, lhs, rhs):
+        lhs = Equals.fieldFromTypeArg(lhs)
+        rhs = Equals.fieldFromTypeArg(rhs)
+        if isinstance(lhs, Value) and isinstance(rhs, Value):
+            return lhs == rhs
+        elif isinstance(lhs, Value):
+            return RightAssignment(lhs, rhs)
+        elif isinstance(rhs, Value):
+            return LeftAssignment(lhs, rhs)
+        else:
+            return Identity(lhs, rhs)
+
+
+class All(Condition):
     __slots__ = ['clauses']
+
     def __new__(cls, *clauses):
-        clauses = [cc for c in clauses for cc in (c.clauses if isinstance(c, All) else c if hasattr(c, '__iter__') else (c,)) if cc is not True]
+        clauses = [
+            cc
+            for c in clauses
+            for cc in (
+                c.clauses if isinstance(c, All) else c if hasattr(c, '__iter__') else (c,)
+            )
+            if cc is not True
+        ]
         if len(clauses) == 0:
             return True
         elif len(clauses) == 1:
@@ -53,16 +195,26 @@ class All:
         elif any(c is False for c in clauses):
             return False
         else:
-            condition = object.__new__(All)
+            condition = super().__new__(self.__class__)
             condition.clauses = clauses
             return condition
+
     def __repr__(self):
         return 'All(%s)' % ', '.join(map(repr, self.clauses))
 
-class Any:
+
+class Any(Condition):
     __slots__ = ['clauses']
+
     def __new__(cls, *clauses):
-        clauses = [cc for c in clauses for cc in (c.clauses if isinstance(c, Any) else c if hasattr(c, '__iter__') else (c,)) if cc is not False]
+        clauses = [
+            cc
+            for c in clauses
+            for cc in (
+                c.clauses if isinstance(c, Any) else c if hasattr(c, '__iter__') else (c,)
+            )
+            if cc is not False
+        ]
         if len(clauses) == 0:
             return False
         elif len(clauses) == 1:
@@ -73,11 +225,13 @@ class Any:
             # put in conjunctive normal form
             return All(map(Any, itertools.product(*((c.clauses if isinstance(c, All) else (c,)) for c in clauses))))
         else:
-            condition = object.__new__(Any)
+            condition = super().__new__(self.__class__)
             condition.clauses = clauses
             return condition
+
     def __repr__(self):
         return 'Any(%s)' % ', '.join(map(repr, self.clauses))
+
 
 class Subtype:
     def __new__(cls, t1, t2):
@@ -111,7 +265,7 @@ class Subtype:
         if o1 is typing.Callable:
             if o2 is not typing.Callable or len(a1) != len(a2):
                 return False
-            return All(Subtype(a1[-1], a2[-1]), (Subtype(aa2, aa1) for aa1, aa2 in zip(a1[:-1], a2[:-1])))
+            return All(Subtype(a1[-1], a2[-1]), (Condition.reverse(Subtype(aa2, aa1)) for aa1, aa2 in zip(a1[:-1], a2[:-1])))
 
         if o1 is tuple:
             if o2 is not tuple or len(a1) != len(a2):
@@ -129,11 +283,112 @@ class Subtype:
 
         raise ValueError('Unhandled subtype condition: %s <= %s' % (t1, t2))
 
-#def sat(condition, ns1, ns2):
-#    # make a list of variables
-#    if condition is True:
-#        return ()
-#    elif isinstance(condition, Equals):
-#        return (
-#    stack = []
-#    for 
+
+class UnionFind:
+    def __init__(self):
+        self.parent = {}
+        self.rank = {}
+
+    def find(self, x):
+        if x not in self.parent:
+            self.parent[x] = x
+            self.rank[x] = 0
+            return x
+        if self.parent[x] is not x:
+            self.parent[x] = self.find(self.parent[x])
+        return self.parent[x]
+
+    def union(x, y):
+        x, y = self.find(x), self.find(y)
+        if x is y
+            return
+        if self.rank[x] < self.rank[y]
+            self.parent[x] = y
+            return y
+        elif self.rank[x] > self.rank[y]:
+            self.parent[y] = x
+            return x
+        else:
+            self.parent[y] = x
+            self.rank[x] += 1
+            return x
+
+    def copy(self):
+        other = UnionFind()
+        other.parent.update(self.parent)
+        other.rank.update(self.rank)
+
+    def keys(self):
+        return self.parent.keys()
+
+
+class Assignment:
+    def __init__(self):
+        self.sets = UnionFind()
+        self.values = {}
+
+    def value(self, x):
+        return self.values.get(self.sets.find(x))
+
+    def add_identity(self, x, y):
+        # Try to update this assignment with the information that x==y.
+        # Iff this would contradict some other assignment, return False.
+        x, y = self.sets.find(x), self.sets.find(y)
+        if x is y:
+            return True
+        if x in self.values and y in self.values and self.values[x] != self.values[y]:
+            return False
+        v = self.values.pop(x, self.values.pop(y, None)) 
+        x = self.sets.union(x, y)
+        if v is not None:
+            self.values[x] = v
+        return True
+
+    def add_value(self, x, y):
+        # Try to update this assignment with the information that x:=y.
+        # Iff this would contradict some other assignment, return False.
+        x = self.sets.find(x)
+        if x in self.values:
+            return self.values[x] == y
+        self.values[x] = y
+        return True
+
+    def add_literal(self, literal):
+        if isinstance(literal, Identity):
+            return self.add_identity(literal.lhs, literal.rhs)
+        elif isinstance(literal, LeftAssignment):
+            return self.add_value(literal.lhs, literal.rhs.value)
+        elif isinstance(literal, RightAssignment):
+            return self.add_value(literal.rhs, literal.lhs.value)
+
+    def copy(self):
+        other = super().__new__(self.__class__)
+        other.sets = self.sets.copy()
+        other.values = self.values.copy()
+
+    def evaluate(self, condition):
+        if isinstance(condition, bool):
+            return condition
+        if isinstance(condition, (Any, All)):
+            return condition.__class__(self.evaluate(c) for c in condition.clauses)
+        if isinstance(condition, Identity):
+            lhs = self.sets.find(condition.lhs)
+            rhs = self.sets.find(condition.rhs)
+            if lhs is rhs:
+                return True
+            lhs = self.values.get(lhs)
+            rhs = self.values.get(rhs)
+            if lhs is not None and rhs is not None:
+                return lhs == rhs
+            return condition
+        if isinstance(condition, LeftAssignment):
+            lhs = self.value(condition.lhs)
+            return lhs == condition.rhs.value if lhs is not None else condition
+        if isinstance(condition, RightAssignment):
+            rhs = self.value(condition.rhs)
+            return rhs == condition.lhs.value if rhs is not None else condition
+        raise TypeError()
+
+    def apply(self):
+        for variable in self.sets.keys():
+            setattr(variable.target, variable.name, self.value(variable))

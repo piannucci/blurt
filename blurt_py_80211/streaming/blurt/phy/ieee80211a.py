@@ -1,7 +1,9 @@
 import collections
 import itertools
 import numpy as np
-from ..graph import Output, Input, Block
+from typing import import TypeVar
+from ..graph import Port, Block
+from ..graph.typing import Array
 from .iir import IIRFilter
 from . import cc
 from . import rates
@@ -93,13 +95,14 @@ class IEEE80211aDecoderBlock(GenericDecoderBlock):
         super().__init__(channel, correlator.Clause18Detector, Clause18Decoder)
 
 class IEEE80211aEncoderBlock(Block):
-    inputs = [Input(())]
-    outputs = [Output(np.float32, ('nChannelsPerFrame',))]
+    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
+    inputs = [Port(Array[[None], np.uint8])]
+    outputs = [Port(Array[[None, _nChannelsPerFrame], np.float32])]
 
     def __init__(self, channel, nChannelsPerFrame=2):
         super().__init__()
         self.channel = channel
-        self.nChannelsPerFrame = 2
+        self.nChannelsPerFrame = nChannelsPerFrame
         self.oversample = 4
         self.preferredRate = 6
 
@@ -115,7 +118,7 @@ class IEEE80211aEncoderBlock(Block):
     def process(self):
         channel = self.channel
         baseRate = rates.L_rate(0xb)
-        for datagram, in self.input():
+        for datagram, in self.iterinput():
             octets = np.frombuffer(datagram, np.uint8)
             # prepare header and payload bits
             rateEncoding = {6:0xb, 9:0xf, 12:0xa, 18:0xe, 24:0x9, 36:0xd, 48:0x8, 54:0xc}[self.preferredRate]

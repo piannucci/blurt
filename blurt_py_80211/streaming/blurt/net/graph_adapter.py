@@ -1,9 +1,9 @@
-from ..graph import Output, Input, Block
+from ..graph import Port, Block
 from ..mac.lowpan import Packet
 
 class TunnelSource(Block):
     inputs = []
-    outputs = [Output(Packet, ())]
+    outputs = [Port(Packet)]
 
     def __init__(self, utun, ll_da):
         super().__init__()
@@ -26,7 +26,7 @@ class TunnelSource(Block):
             self.notify()
 
 class TunnelSink(Block):
-    inputs = [Input(())]
+    inputs = [Port(Packet)]
     outputs = []
 
     def __init__(self, utun):
@@ -34,7 +34,7 @@ class TunnelSink(Block):
         self.utun = utun
 
     def process(self):
-        for packet, in self.input():
+        for packet, in self.iterinput():
             datagram = packet.tail()
             print('%5d B -> %s' % (len(datagram), self.utun))
             self.utun.write(datagram)

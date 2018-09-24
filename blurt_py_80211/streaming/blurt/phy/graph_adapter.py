@@ -1,17 +1,18 @@
-import typing
+from typing import import Tuple, TypeVar
 import collections
 import numpy as np
-from .. import graph
+from ..graph import Port, Block
+from ..graph.typing import Array
 from . import iir
 
-class GenericDecoderBlock(graph.Block):
+class GenericDecoderBlock(Block):
     """
     A graph block that performs downconversion, downsampling, decoder
     instantiation, and lookback.
     """
-
-    inputs = [graph.Input(('nChannelsPerFrame',))]
-    outputs = [graph.Output(typing.Tuple[np.ndarray, float], ())]
+    _nChannelsPerFrame = TypeVar('nChannelsPerFrame')
+    inputs = [Port(Tuple[Array[[None, _nChannelsPerFrame], np.float32], float, float])]
+    outputs = [Port(Tuple[Array[[None], np.uint8], float])]
 
     def __init__(self, channel, detector_class, decoder_class):
         """
@@ -49,7 +50,7 @@ class GenericDecoderBlock(graph.Block):
         channel = self.channel
         Omega = 2*np.pi*channel.Fc/channel.Fs
         upsample_factor = channel.upsample_factor
-        for (y, inputTime, now), in self.input():
+        for (y, inputTime, now), in self.iterinput():
             nFrames = y.shape[0]
             y = self.lp(y * np.exp(-1j*Omega * np.r_[self.i:self.i+nFrames])[:,None])
             y = y[-self.i%upsample_factor::upsample_factor]

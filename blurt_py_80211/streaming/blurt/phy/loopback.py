@@ -1,10 +1,10 @@
 import typing
 import numpy as np
-from ..graph import Output, Input, Block
+from ..graph import Port, Block
 
 class PHYLoopbackBlock(Block): # given an encoder input, produce a fake decoder output
-    inputs = [Input(())]
-    outputs = [Output(typing.Tuple[np.ndarray, float], ())]
+    inputs = [Port(Array[[None], np.uint8])]
+    outputs = [Port(Tuple[Array[[None], np.uint8], float])]
 
     def process(self):
         for item, in self.input():

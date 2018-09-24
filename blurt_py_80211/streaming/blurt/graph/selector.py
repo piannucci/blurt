@@ -2,6 +2,7 @@ import os
 import collections
 import threading
 import select
+import typing
 from .timers import TimerQueue
 
 class PipeQueue:
@@ -28,9 +29,12 @@ class PipeQueue:
     def __bool__(self):
         return bool(self.q)
 
+class Event(typing.NamedTuple):
+    coalesce : bool = False
+
 class Selector:
-    QuitCondition = object()
-    UpdatedTimerCondition = object()
+    QuitEvent = Event()
+    UpdatedTimerEvent = Event(coalesce=True)
 
     def __init__(self):
         super().__init__()
@@ -45,7 +49,7 @@ class Selector:
         self.startup_handlers = []
         self.shutdown_handlers = []
         self.condition_handlers = {
-            self.QuitCondition: self._quitHandler,
+            self.QuitEvent: self._quitHandler,
         }
 
     def _quitHandler(self):
@@ -55,8 +59,17 @@ class Selector:
 
     def _conditionHandler(self):
         while self.conditionQueue:
-            if self.condition_handlers.get(self.conditionQueue.get(), lambda : False)():
-                return
+            uncoalesced = []
+            coalesced = collections.OrderedDict()
+            while self.conditionQueue:
+                c = self.conditionQueue.get()
+                if c.coalesce:
+                    coalesced[c] = None
+                else:
+                    uncoalesced.append(c)
+            for c in list(coalesced) + uncoalesced:
+                if self.condition_handlers.get(c, lambda : False)():
+                    return
 
     def thread_proc(self):
         with self.lock:
@@ -96,7 +109,7 @@ class Selector:
             if self.stopping or not self.running:
                 return
             self.stopping = True
-            self.conditionQueue.put(self.QuitCondition)
+            self.conditionQueue.put(self.QuitEvent)
         self.thread.join()
         with self.lock:
             assert self.running and self.stopping
@@ -106,13 +119,13 @@ class Selector:
     def addTimer(self, cb, delay=None, when=None):
         with self.lock:
             timer = self.tq.insert(cb, delay, when)
-            self.conditionQueue.put(self.UpdatedTimerCondition)
+            self.conditionQueue.put(self.UpdatedTimerEvent)
             return timer
 
     def removeTimer(self, timer):
         with self.lock:
             self.tq.remove(timer)
-            self.conditionQueue.put(self.UpdatedTimerCondition)
+            self.conditionQueue.put(self.UpdatedTimerEvent)
 
     def postCondition(self, cond):
         with self.lock:

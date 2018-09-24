@@ -1,22 +1,26 @@
 import queue
 import warnings
-from .graph import Output, Input, Block, OverrunWarning
+import typing
+from .graph import Port, Block, OverrunWarning
 
 class Tee(Block):
-    inputs = [Input('shape')]
+    _T = typing.TypeVar('T')
+    inputs = [Port(_T)]
 
     def __init__(self, n, dtype=None):
-        self.outputs = [Output(dtype, 'shape')] * n
+        self.outputs = [Port(self._T)] * n
         super().__init__()
 
     def process(self):
-        for item, in self.input():
+        for item, in self.iterinput():
             self.output((item,) * len(self.output_queues))
 
 class Arbiter(Block):
-    def __init__(self, n, dtype=None):
-        self.inputs = [Input('shape') for i in range(n)]
-        self.outputs = [Output(dtype, 'shape')]
+    _T = typing.TypeVar('T')
+    outputs = [Port(_T)]
+
+    def __init__(self, n):
+        self.inputs = [Port(self._T) for i in range(n)]
         super().__init__()
 
     def process(self):
@@ -32,12 +36,17 @@ class Arbiter(Block):
                 return
 
 class LambdaBlock(Block):
-    def __init__(self, idtype, ishape, odtype, oshape, fn):
-        self.inputs = [Input(ishape)]
-        self.outputs = [Output(odtype, oshape)]
-        self.fn = fn
+    _T = typing.TypeVar('T')
+    _S = typing.TypeVar('S')
+    inputs = [Port(_T)]
+    outputs = [Port(_S)]
+
+    def __init__(self, itype, otype, func):
+        self.T = itype
+        self.S = otype
+        self.func = func
         super().__init__()
 
     def process(self):
-        for item, in self.input():
-            self.output((self.fn(item),))
+        for item, in self.iterinput():
+            self.output((self.func(item),))
