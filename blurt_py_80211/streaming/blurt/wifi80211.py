@@ -137,8 +137,7 @@ if __name__ == '__main__':
             time.sleep(.05)
             if bypassAudio:
                 # keep a steady stream of zeros flowing when there isn't a packet
-                xcvr.audio_loopback_b.input_queues[0].put(np.zeros((1000,2)))
-                xcvr.graph.notify()
+                xcvr.audio_loopback_b.injectSilence()
             if vuMeter:
                 vu = int(max(0, 80 + 10*np.log10(xcvr.agc.vu)))
                 bar = [' '] * 150

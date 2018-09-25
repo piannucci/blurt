@@ -42,7 +42,7 @@ class FileSource(Block):
         else:
             while True:
                 try:
-                    self.output_queues[0].put(pickle.load(self.f))
+                    self.output1(0, pickle.load(self.f))
                 except EOFError:
                     break
 
@@ -61,9 +61,9 @@ class FileSource(Block):
         )
         while self.tokens >= 1:
             try:
-                self.output_queues[0].put(pickle.load(self.f))
+                self.output1(0, pickle.load(self.f))
             except EOFError:
-                self.output_queues[0].closed = True
+                self.closeOutput()
                 return
             self.tokens -= 1
         self.timer = self.runloop.addTimer(self._timerFired, delay=self.timeGranularity)

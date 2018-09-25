@@ -28,7 +28,7 @@ class Block:
         self.connections = []   # list of tuples (my output port #, other, other input port #)
 
     def process(self):
-        pass                    # get from self.input_queues, put to self.output_queues
+        pass                    # get from iterinput/input1, put to output/output1
 
     def closeOutput(self):
         for oq in self.output_queues:
@@ -51,16 +51,37 @@ class Block:
 
     def iterinput(self):
         while not any(iq.empty() for iq in self.input_queues):
-            yield tuple(iq.get_nowait() for iq in self.input_queues)
+            items, self._last_input_tags = zip(*(iq.get_nowait() for iq in self.input_queues))
+            yield items
 
-    def output(self, items):
+    def input1(self, ip):
+        item, tag = self.input_queues[ip].get_nowait()
+        self._last_input_tags = (None,) * ip + (tag,) + (None,) * (len(self.inputs) - ip - 1)
+        yield item
+
+    def nextOutputTag():
+        return None
+
+    def output(self, items, tag=None):
         if not any(iq.full() for iq in self.output_queues):
+            tag = tag if tag is not None else self.nextOutputTag()
             for oq, it in zip(self.output_queues, items):
-                oq.put_nowait(it)
+                oq.put_nowait((it, tag))
             return True
         else:
             warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
             return False
+
+    def output1(self, op, item, tag=None):
+        tag = tag if tag is not None else self.nextOutputTag()
+        try:
+            self.output_queues[op].put_nowait((item, tag))
+        except queue.Full:
+            warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+
+class OneToOneBlock:
+    def nextOutputTag():
+        return self._last_input_tags[0]
 
 class Graph:
     def __init__(self, sourceBlocks, *, runloop=None):

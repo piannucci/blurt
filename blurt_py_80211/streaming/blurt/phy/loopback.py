@@ -7,5 +7,5 @@ class PHYLoopbackBlock(Block): # given an encoder input, produce a fake decoder 
     outputs = [Port(Tuple[Array[[None], np.uint8], float])]
 
     def process(self):
-        for item, in self.input():
+        for item, in self.iterinput():
             self.output(((item, 0),))

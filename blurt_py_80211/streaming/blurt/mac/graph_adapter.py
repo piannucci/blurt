@@ -1,10 +1,9 @@
 import sys
-import warnings
 import queue
 import numpy as np
 from typing import Tuple
 from ..graph.typing import Array
-from ..graph import Port, Block, OverrunWarning
+from ..graph import Port, Block
 from .lowpan import Packet
 
 class FragmentationBlock(Block):
@@ -39,10 +38,7 @@ class PacketDispatchBlock(Block):
             ll_sa = datagram[0:6]
             ll_da = datagram[6:12]
             packet = Packet(ll_sa, ll_da, datagram[12:])
-            try:
-                self.output_queues[self.op_by_ll_addr[packet.ll_da]].put_nowait((packet, lsnr))
-            except queue.Full:
-                warnings.warn('%s overrun' % self.__class__.__name__, OverrunWarning)
+            self.output1(self.op_by_ll_addr[packet.ll_da], (packet, lsnr))
 
 class ReassemblyBlock(Block):
     inputs = [Port(Tuple[Packet, float])]

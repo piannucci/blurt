@@ -1,4 +1,5 @@
 # adapter from audio stream to asynchronous graph
+import time
 import warnings
 import numpy as np
 from typing import Tuple
@@ -52,7 +53,7 @@ class OutStream_SinkBlock(IOStream, Block):
                 self.outFragment = None
         while i < nFrames:
             try:
-                fragment = self.input_queues[0].get_nowait()
+                fragment = self.input1(0)
             except queue.Empty:
                 result[i:] = 0
                 if self.warnOnUnderrun:
@@ -93,4 +94,10 @@ class AudioBypass_Block(Block):
 
     def process(self):
         for frames, in self.iterinput():
-            self.output(((frames, 0, 0),))
+            t = time.monotonic()
+            self.output1(0, (frames, t, t))
+
+    def injectSilence(self):
+        t = time.monotonic()
+        self.output1(0, (np.zeros((1000, self.nChannelsPerFrame)), t, t))
+        self.notify()
