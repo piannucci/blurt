@@ -30,14 +30,6 @@ class Block:
     def process(self):
         pass                    # get from self.input_queues, put to self.output_queues
 
-    def propagateClosure(self): # any queue stopped -> stop all queues and return True
-        if any(iq.closed for iq in self.input_queues) or \
-           any(oq.closed for oq in self.output_queues):
-            self.closeOutput()
-            self.closeInput()
-            return True
-        return False
-
     def closeOutput(self):
         for oq in self.output_queues:
             oq.closed = True
@@ -181,7 +173,9 @@ class Graph:
         for b in self.allBlocks:
             if b in self.runningBlocks:
                 b.process()
-                if b.propagateClosure():
+                if any(iq.closed for iq in b.input_queues) or any(oq.closed for oq in b.output_queues):
+                    b.closeOutput()
+                    b.closeInput()
                     self.runningBlocks.remove(b)
         for q in self.danglingQueues:
             while not q.empty():
