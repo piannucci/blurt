@@ -46,10 +46,10 @@ class FileSource(Block):
                 except EOFError:
                     break
 
-    def stop(self):
+    def stopped(self):
         if self.ratelimit is not None:
             self.runloop.removeTimer(self.timer)
-        super().stop()
+        super().stopped()
 
     def _timerFired(self):
         now = time.monotonic()

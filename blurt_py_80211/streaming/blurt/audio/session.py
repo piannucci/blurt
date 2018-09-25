@@ -19,7 +19,6 @@ class IOSession:
                 kAudioObjectPropertyScopeOutput.value: False,
             }
             self.created = False
-            self.stopping = False
             self.running = False
             self.masterDeviceUID = None
             self.deviceScopes = []
@@ -200,22 +199,13 @@ class IOSession:
         with self.cv:
             if not self.running:
                 return
-            self.stopping = True
+            self.stopIO()
             self.wait()
 
     def wait(self):
         with self.cv:
-            try:
-                while self.running:
-                    self.cv.wait()
-            except KeyboardInterrupt:
-                if not self.stopping:
-                    self.stopping = True
-                    while self.running:
-                        self.cv.wait()
-                else:
-                    self.stopIO()
-                    self.ioProcException = InterruptedError()
+            while self.running:
+                self.cv.wait()
             if self.ioProcException:
                 raise self.ioProcException
             return self.inStream
@@ -277,7 +267,7 @@ class IOSession:
                     nextChannel += mNumberChannels
             inDone = not self.inStream or self.inStream.inDone()
             outDone = not self.outStream or self.outStream.outDone()
-            if self.stopping or (inDone and outDone):
+            if inDone and outDone:
                 self.stopIO()
         except Exception as e:
             with self.cv:

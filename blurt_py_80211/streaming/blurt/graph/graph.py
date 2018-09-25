@@ -53,8 +53,8 @@ class Block:
         self.notify = self.graph.notify
         self.runloop = self.graph.runloop
 
-    def stop(self):             # take any special actions for graph stop
-        self.notify = None
+    def stopped(self):          # take any special actions for graph stop
+        self.notify = lambda : None
         self.runloop = None
 
     def iterinput(self):
@@ -175,7 +175,7 @@ class Graph:
 
     def _shutdownHandler(self):
         for b in self.allBlocks:
-            b.stop()
+            b.stopped()
 
     def _wakeHandler(self):
         for b in self.allBlocks:

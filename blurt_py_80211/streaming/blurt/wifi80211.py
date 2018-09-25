@@ -1,7 +1,4 @@
 #!/usr/bin/env python3.7
-import os
-import queue
-import itertools
 import time
 import numpy as np
 import binascii
@@ -13,7 +10,7 @@ from .graph import Graph
 from .graph.tee import Tee, Arbiter
 from .graph.fileio import FileSink
 from .graph.selector import Selector
-from .audio import IOSession, play_and_record, MicrophoneAGCAdapter, CSMAOutStreamAdapter
+from .audio import IOSession, MicrophoneAGCAdapter, CSMAOutStreamAdapter
 from .audio import InStream_SourceBlock, OutStream_SinkBlock, IOSession_Block
 from .audio import AudioHardware as AH
 from .net.graph_adapter import TunnelSink, TunnelSource

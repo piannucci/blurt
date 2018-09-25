@@ -15,9 +15,9 @@ class TunnelSource(Block):
         super().start()
         self.runloop.rlist[self.utun] = self._readHandler
 
-    def stop(self):
+    def stopped(self):
         del self.runloop.rlist[self.utun]
-        super().stop()
+        super().stopped()
 
     def _readHandler(self):
         datagram = self.utun.read()

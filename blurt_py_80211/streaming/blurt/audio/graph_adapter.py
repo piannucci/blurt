@@ -82,9 +82,9 @@ class IOSession_Block(Block):
         super().start()
         self.ios.start()
 
-    def stop(self):
+    def stopped(self):
         self.ios.stop()
-        super().stop()
+        super().stopped()
 
 # software loopback
 class AudioBypass_Block(Block):
